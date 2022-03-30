@@ -122,8 +122,11 @@ internal sealed class MappingInformation
                             }
                             || (_.Type.TypeKind == TypeKind.Enum && sourceProperty.Type.TypeKind == TypeKind.Enum)
                             || (SymbolEqualityComparer.Default.Equals(_.Type, MappingContext.Int64TypeSymbol) && SymbolEqualityComparer.Default.Equals(sourceProperty.Type, MappingContext.DateTimeTypeSymbol))
+                            || (SymbolEqualityComparer.Default.Equals(_.Type, MappingContext.DateTimeTypeSymbol) && SymbolEqualityComparer.Default.Equals(sourceProperty.Type, MappingContext.Int64TypeSymbol))
                             || (SymbolEqualityComparer.Default.Equals(_.Type, MappingContext.ByteStringTypeSymbol) && SymbolEqualityComparer.Default.Equals(sourceProperty.Type, MappingContext.GuidTypeSymbol))
+                            || (SymbolEqualityComparer.Default.Equals(_.Type, MappingContext.GuidTypeSymbol) && SymbolEqualityComparer.Default.Equals(sourceProperty.Type, MappingContext.ByteStringTypeSymbol))
                             || (SymbolEqualityComparer.Default.Equals(_.Type, MappingContext.ByteStringTypeSymbol) && sourceProperty.Type.IsByteArrayType())
+                            || (SymbolEqualityComparer.Default.Equals(sourceProperty.Type, MappingContext.ByteStringTypeSymbol) && _.Type.IsByteArrayType())
                         )
                         || sourceProperty.NullableAnnotation == NullableAnnotation.Annotated
                     );
