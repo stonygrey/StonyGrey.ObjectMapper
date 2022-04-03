@@ -204,8 +204,8 @@ internal sealed class MappingBuilder
 
     private static void BuildMapToProtobufExtensionMethod(ITypeSymbol source, ITypeSymbol destination, ImmutableArray<IPropertySymbol> destinationProperties, IMethodSymbol constructor, NamespaceGatherer namespaces, IndentedTextWriter indentWriter)
     {
-        var fullyQualifiedSource = $"global::{source.ContainingNamespace.Name}.{source.Name}";
-        var fullyQualifiedDestination = $"global::{destination.ContainingNamespace.Name}.{destination.Name}";
+        var fullyQualifiedSource = $"global::{source.ContainingNamespace.ToDisplayString()}.{source.Name}";
+        var fullyQualifiedDestination = $"global::{destination.ContainingNamespace.ToDisplayString()}.{destination.Name}";
 
         var parameters = new string[constructor.Parameters.Length + 1];
         parameters[0] = $"this {fullyQualifiedSource} self";
@@ -297,7 +297,7 @@ internal sealed class MappingBuilder
                 indentWriter.WriteLine($"if (self.{destinationProperty.Name} != default)");
                 indentWriter.WriteLine("{");
                 indentWriter.Indent++;
-                indentWriter.WriteLine($"mapped.{destinationProperty.Name} = (global::{destination.ContainingNamespace.Name}.{destinationProperty.Type.Name})self.{destinationProperty.Name};");
+                indentWriter.WriteLine($"mapped.{destinationProperty.Name} = (global::{destination.ContainingNamespace.ToDisplayString()}.{destinationProperty.Type.Name})self.{destinationProperty.Name};");
                 indentWriter.Indent--;
                 indentWriter.WriteLine($"}}{Environment.NewLine}");
             }
@@ -364,8 +364,8 @@ internal sealed class MappingBuilder
 
     private static void BuildMapFromProtobufExtensionMethod(ITypeSymbol source, ITypeSymbol destination, ImmutableArray<IPropertySymbol> destinationProperties, IMethodSymbol constructor, NamespaceGatherer namespaces, IndentedTextWriter indentWriter)
     {
-        var fullyQualifiedSource = $"global::{source.ContainingNamespace.Name}.{source.Name}";
-        var fullyQualifiedDestination = $"global::{destination.ContainingNamespace.Name}.{destination.Name}";
+        var fullyQualifiedSource = $"global::{source.ContainingNamespace.ToDisplayString()}.{source.Name}";
+        var fullyQualifiedDestination = $"global::{destination.ContainingNamespace.ToDisplayString()}.{destination.Name}";
 
         var parameters = new string[constructor.Parameters.Length + 1];
         parameters[0] = $"this {fullyQualifiedSource} self";
@@ -488,8 +488,8 @@ internal sealed class MappingBuilder
 
     private static void BuildMapFromProtobufExtensionMethodWithTarget(ITypeSymbol source, ITypeSymbol destination, ImmutableArray<IPropertySymbol> destinationProperties, NamespaceGatherer namespaces, IndentedTextWriter indentWriter)
     {
-        var fullyQualifiedSource = $"global::{source.ContainingNamespace.Name}.{source.Name}";
-        var fullyQualifiedDestination = $"global::{destination.ContainingNamespace.Name}.{destination.Name}";
+        var fullyQualifiedSource = $"global::{source.ContainingNamespace.ToDisplayString()}.{source.Name}";
+        var fullyQualifiedDestination = $"global::{destination.ContainingNamespace.ToDisplayString()}.{destination.Name}";
 
         var parameters = new string[1];
         parameters[0] = $"this {fullyQualifiedSource} self";
