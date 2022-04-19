@@ -1,21 +1,42 @@
 syntax = "proto3";
 
-package Protobuf;
+package ProtobufDotNet;
 
-enum TestEnum { One = 0; Two = 1; }
+enum Testing { One = 0; Two = 1; Three = 2; }
+
+message TestSubSubMessage {
+    string StringMember = 1;
+    string ReadOnlyStringMember = 2;
+}
+
+message TestSubMessage1 {
+    string StringMember = 1;
+    TestSubSubMessage TestSubSubMessageMember = 2;
+}
+
+message TestSubMessage2 {
+    string StringMember = 1;
+    repeated string TestSubMessage2StringsMember = 2;
+}
 
 message TestMessage {
-    string String = 1;
-    int32 Int = 2;
-    optional int32 Optional = 3;
-    int32 NonOptional = 4;
-    bytes Guid = 5;
-    sint64 DateTime = 6;
-    oneof OneOf {
-        sint64 OneOfA = 7;
-        sint64 OneOfB = 8;
+    string StringMember = 1;
+    int32 IntMember = 2;
+    optional int32 OptionalMember = 3;
+    int32 NonOptionalMember = 4;
+    bytes GuidMember = 5;
+    sint64 DateTimeMember = 6;
+    oneof OneOfMember {
+        sint64 OneOfAMember = 7;
+        sint64 OneOfBMember = 8;
     }
-    TestEnum TestEnum = 9;
-    bytes Data = 10;
-    optional bytes OptionalData = 11;
+    Testing EnumMember = 9;
+    bytes DataMember = 10;
+    optional bytes OptionalDataMember = 11;
+    TestSubMessage1 TestSubMessageMember = 12;
+    repeated string StringsMember = 13;
+    repeated TestSubMessage1 TestSubMessagesMember = 14;
+    TestSubMessage2 TestSubMessage2Member = 15;
+    repeated Testing EnumListMember = 16;
+    optional Testing NullableEnumMember = 17;
 }

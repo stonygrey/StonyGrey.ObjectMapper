@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package ProtobufDotNet;
+
+message OneOfMessage {
+    oneof OneOfMember {
+        sint64 OneOfAMember = 1;
+        sint64 OneOfBMember = 2;
+    }
+}
