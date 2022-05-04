@@ -52,7 +52,7 @@ namespace Tests
 
             foreach (var element in source)
             {
-                target.Add(element.MapToProtobuf());
+                target.Add(element.Map());
             }
         }
 
@@ -63,7 +63,7 @@ namespace Tests
 
             foreach (var element in source)
             {
-                target.Add(element.MapFromProtobuf());
+                target.Add(element.Map());
             }
         }
     }
