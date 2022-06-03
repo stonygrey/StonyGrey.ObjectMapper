@@ -19,6 +19,10 @@ message TestSubMessage2 {
     repeated string TestSubMessage2StringsMember = 2;
 }
 
+message TestStruct {
+    string StringMember = 1;
+}
+
 message TestMessage {
     string StringMember = 1;
     int32 IntMember = 2;
@@ -39,4 +43,5 @@ message TestMessage {
     TestSubMessage2 TestSubMessage2Member = 15;
     repeated Testing EnumListMember = 16;
     optional Testing NullableEnumMember = 17;
+    TestStruct TestStructMember = 18;
 }
