@@ -657,11 +657,11 @@ internal sealed class MappingBuilder : IDisposable
         }
     }
 
-    private void WriteCollectionElementMapping(IPropertySymbol sourceProperty, IPropertySymbol destinationProperty, ITypeSymbol sourceTypeSymbol, ITypeSymbol destinationTypeSymbol, IndentedTextWriter _indentWriter, string prefix, string postfix)
+    private void WriteCollectionElementMapping(IPropertySymbol sourceProperty, IPropertySymbol destinationProperty, ITypeSymbol sourceCollectionTypeSymbol, ITypeSymbol destinationCollectionTypeSymbol, IndentedTextWriter _indentWriter, string prefix, string postfix)
     {
         string? methodName;
 
-        if (_compilation.ClassifyCommonConversion(sourceTypeSymbol, destinationTypeSymbol).IsImplicit)
+        if (_compilation.ClassifyCommonConversion(sourceCollectionTypeSymbol, destinationCollectionTypeSymbol).IsImplicit)
         {
             _indentWriter.WriteLine($"foreach(var e in self.{sourceProperty.Name})");
             _indentWriter.WriteLine("{");
@@ -670,28 +670,28 @@ internal sealed class MappingBuilder : IDisposable
             _indentWriter.Indent--;
             _indentWriter.WriteLine($"}}{Environment.NewLine}");
         }
-        else if ((methodName = sourceProperty.GetConversionMethod(destinationProperty)) != null)
-        {
-            _indentWriter.WriteLine($"foreach(var e in {prefix}{sourceProperty}");
-            _indentWriter.WriteLine("{");
-            _indentWriter.Indent++;
-            _indentWriter.WriteLine($"{destinationProperty}.Add(e.{methodName}());");
-            _indentWriter.Indent--;
-            _indentWriter.WriteLine("}");
-        }
-        else if (destinationTypeSymbol.TypeKind == TypeKind.Enum)
+        else if ((methodName = sourceCollectionTypeSymbol.GetConversionMethod(destinationCollectionTypeSymbol)) != null)
         {
             _indentWriter.WriteLine($"foreach(var e in self.{sourceProperty.Name})");
             _indentWriter.WriteLine("{");
             _indentWriter.Indent++;
-            var ss = $"{prefix}{destinationProperty.Name}.Add(e.MapToEnum<{$"global::{destinationProperty.ContainingNamespace.ToDisplayString()}.{destinationTypeSymbol.Name}"}>());";
-            _indentWriter.WriteLine($"{prefix}{destinationProperty.Name}.Add(e.MapToEnum<{$"global::{destinationProperty.ContainingNamespace.ToDisplayString()}.{destinationTypeSymbol.Name}"}>());");
+            _indentWriter.WriteLine($"{prefix}{destinationProperty.Name}.Add(e.{methodName}());");
+            _indentWriter.Indent--;
+            _indentWriter.WriteLine("}");
+        }
+        else if (destinationCollectionTypeSymbol.TypeKind == TypeKind.Enum)
+        {
+            _indentWriter.WriteLine($"foreach(var e in self.{sourceProperty.Name})");
+            _indentWriter.WriteLine("{");
+            _indentWriter.Indent++;
+            var ss = $"{prefix}{destinationProperty.Name}.Add(e.MapToEnum<{$"global::{destinationProperty.ContainingNamespace.ToDisplayString()}.{destinationCollectionTypeSymbol.Name}"}>());";
+            _indentWriter.WriteLine($"{prefix}{destinationProperty.Name}.Add(e.MapToEnum<{$"global::{destinationProperty.ContainingNamespace.ToDisplayString()}.{destinationCollectionTypeSymbol.Name}"}>());");
             _indentWriter.Indent--;
             _indentWriter.WriteLine($"}}{Environment.NewLine}");
         }
         else
         {
-            var (s, t) = _targets.Where(e => e.HasValue).Select(e => e!.Value).Where(e => SymbolEqualityComparer.Default.Equals(sourceTypeSymbol, e.source) && SymbolEqualityComparer.Default.Equals(destinationTypeSymbol, e.destination)).Select(e => (e.source, e.destination)).FirstOrDefault();
+            var (s, t) = _targets.Where(e => e.HasValue).Select(e => e!.Value).Where(e => SymbolEqualityComparer.Default.Equals(sourceCollectionTypeSymbol, e.source) && SymbolEqualityComparer.Default.Equals(destinationCollectionTypeSymbol, e.destination)).Select(e => (e.source, e.destination)).FirstOrDefault();
             if (s != null && t != null)
             {
                 var imessage = _compilation.GetTypeByMetadataName("Google.Protobuf.IMessage");

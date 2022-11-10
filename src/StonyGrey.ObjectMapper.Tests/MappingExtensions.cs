@@ -28,7 +28,7 @@ namespace Tests
         public static ProtobufDotNet.Testing MapToTesting(this Tests.Testing? e)
             => e.HasValue ? (ProtobufDotNet.Testing)e.Value : default(ProtobufDotNet.Testing);
 
-        public static Tests.Testing? MapToTesting(this ProtobufDotNet.Testing e)
+        public static Tests.Testing MapToTesting(this ProtobufDotNet.Testing e)
             => (Tests.Testing)e;
 
         public static ByteString MapToByteString(this byte[] value)
