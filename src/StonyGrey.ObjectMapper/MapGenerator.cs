@@ -37,8 +37,6 @@ internal sealed class MapGenerator : IIncrementalGenerator
 
             Compilation = model.Compilation;
 
-            SymbolExtensions.LoadCommonSymbols();
-
             if (symbol is not null)
             {
                 // Now we're checking to see if the containing symbol of the method symbol
@@ -56,7 +54,7 @@ internal sealed class MapGenerator : IIncrementalGenerator
                     if (attributeData is not null)
                     {
                         return (node, source, (INamedTypeSymbol)attributeData.ConstructorArguments[0].Value!,
-                            new MappingContext((ContainingNamespaceKind)attributeData.ConstructorArguments[1].Value!));
+                            new MappingContext((ContainingNamespaceKind)attributeData.ConstructorArguments[1].Value!, (bool)attributeData.ConstructorArguments[2].Value!));
                     }
                 }
                 else if (SymbolEqualityComparer.Default.Equals(symbol.ContainingSymbol, mapFromAttributeSymbol))
@@ -68,7 +66,7 @@ internal sealed class MapGenerator : IIncrementalGenerator
                     if (attributeData is not null)
                     {
                         return (node, (INamedTypeSymbol)attributeData.ConstructorArguments[0].Value!, destination,
-                            new MappingContext((ContainingNamespaceKind)attributeData.ConstructorArguments[1].Value!));
+                            new MappingContext((ContainingNamespaceKind)attributeData.ConstructorArguments[1].Value!, (bool)attributeData.ConstructorArguments[2].Value!));
                     }
                 }
                 else if (SymbolEqualityComparer.Default.Equals(symbol.ContainingSymbol, mapAttributeSymbol))
@@ -81,7 +79,7 @@ internal sealed class MapGenerator : IIncrementalGenerator
                         var destination = (INamedTypeSymbol)attributeData.ConstructorArguments[1].Value!;
 
                         return (node, source, destination,
-                            new MappingContext((ContainingNamespaceKind)attributeData.ConstructorArguments[2].Value!));
+                            new MappingContext((ContainingNamespaceKind)attributeData.ConstructorArguments[2].Value!, (bool)attributeData.ConstructorArguments[3].Value!));
                     }
                 }
             }
@@ -121,7 +119,7 @@ internal sealed class MapGenerator : IIncrementalGenerator
                     {
                         // generate the source.
 						var configuration = new ConfigurationValues(options, node!.SyntaxTree);
-						var builder = new MappingBuilder(source, destination,
+						using var builder = new MappingBuilder(source, destination,
                             information.MappedProperties, mappingContext,
                             compilation, configuration, targets);
 

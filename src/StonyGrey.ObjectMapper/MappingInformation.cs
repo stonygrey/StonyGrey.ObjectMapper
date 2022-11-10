@@ -54,10 +54,6 @@ internal sealed class MappingInformation
                 || _.IsEnumerableCollection())
             .ToList();
 
-        var imessage = compilation.GetTypeByMetadataName("Google.Protobuf.IMessage");
-        var isProtobufSource = imessage != null && compilation.ClassifyCommonConversion(source, imessage).IsImplicit;
-        var isProtobufTarget = imessage != null && compilation.ClassifyCommonConversion(destination, imessage).IsImplicit;
-
         var byteString = compilation.GetTypeByMetadataName("Google.Protobuf.ByteString");
 
         foreach (var sourceProperty in sourceProperties)
