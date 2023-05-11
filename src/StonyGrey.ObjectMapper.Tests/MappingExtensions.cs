@@ -25,11 +25,11 @@ namespace Tests
         public static T MapToEnum<T>(this Enum e) where T : Enum
             => (T)e;
 
-        public static ProtobufDotNet.Testing MapToTesting(this Tests.Testing? e)
-            => e.HasValue ? (ProtobufDotNet.Testing)e.Value : default(ProtobufDotNet.Testing);
+        public static ProtobufDotNet.TestEnum MapToTesting(this Tests.TestEnum? e)
+            => e.HasValue ? (ProtobufDotNet.TestEnum)e.Value : default(ProtobufDotNet.TestEnum);
 
-        public static Tests.Testing MapToTesting(this ProtobufDotNet.Testing e)
-            => (Tests.Testing)e;
+        public static Tests.TestEnum MapToTesting(this ProtobufDotNet.TestEnum e)
+            => (Tests.TestEnum)e;
 
         public static ByteString MapToByteString(this byte[] value)
             => value == null ? ByteString.Empty : ByteString.CopyFrom(value);
