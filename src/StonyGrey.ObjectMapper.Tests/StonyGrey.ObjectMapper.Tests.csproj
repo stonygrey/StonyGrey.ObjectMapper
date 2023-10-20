@@ -28,7 +28,7 @@
 		  <PrivateAssets>all</PrivateAssets>
 		  <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
-		<PackageReference Include="StonyGrey.ObjectMapper" Version="3.0.3" />
+		<PackageReference Include="StonyGrey.ObjectMapper" Version="3.0.4" />
 	</ItemGroup>
 	<ItemGroup>
 	  <Protobuf Include="OneOfMessage.proto" />

@@ -207,10 +207,14 @@ internal sealed class MappingBuilder : IDisposable
                 WriteIndentedLine(
                     $"new {fullyQualifiedDestination}({string.Join(", ", constructor.Parameters.Select(_ => _.Name))});");
             }
+
+            if (!_source.IsValueType)
+            {
+                Unindent();
+            }
         }
 
         WriteIndentedLine();
-        Unindent();
 
         foreach (var destinationProperty in _destinationProperties)
         {
@@ -224,7 +228,7 @@ internal sealed class MappingBuilder : IDisposable
             {
                 if (sourceProperty.Type.IsAssignableTo(destinationProperty.Type))
                 {
-                    WriteIndentedLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name};");
+                    WriteIndentedLine($"target.{destinationProperty.Name} = ({destinationProperty.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)})self.{destinationProperty.Name};");
                 }
                 else
                 {
@@ -645,15 +649,13 @@ internal sealed class MappingBuilder : IDisposable
         else
         {
             var (s, t) = _targets.Where(e => e.HasValue).Select(e => e!.Value).Where(e => SymbolEqualityComparer.Default.Equals(sourceCollectionTypeSymbol, e.source) && SymbolEqualityComparer.Default.Equals(destinationCollectionTypeSymbol, e.destination)).Select(e => (e.source, e.destination)).FirstOrDefault();
-            if (s != null && t != null)
+            if (s != null && t != null && HasDefaultConstructor(t))
             {
                 var imessage = _compilation.GetTypeByMetadataName("Google.Protobuf.IMessage");
                 var isProtobufSource = imessage != null && _compilation.ClassifyCommonConversion(s, imessage).IsImplicit;
                 var isProtobufTarget = imessage != null && _compilation.ClassifyCommonConversion(t, imessage).IsImplicit;
-                var fn = isProtobufSource ? "Map" : isProtobufTarget ? "Map" : "Map";
-
                 StartBlock($"foreach(var e in self.{sourceProperty.Name})");
-                WriteIndentedLine($"{prefix}{destinationProperty.Name}.Add(e.{fn}());");
+                WriteIndentedLine($"{prefix}{destinationProperty.Name}.Add(e.Map());");
                 EndBlock(Environment.NewLine);
             }
             else
@@ -663,6 +665,11 @@ internal sealed class MappingBuilder : IDisposable
                 WriteIndentedLine($"// Can't map {sourceProperty.FullyQualifiedName()} to {destinationProperty.FullyQualifiedName()}.");
             }
         }
+    }
+
+    private bool HasDefaultConstructor(INamedTypeSymbol type)
+    {
+        return type.InstanceConstructors.Any(_ => _.DeclaredAccessibility == Accessibility.Public && _.Parameters.Length == 0);
     }
 
     private void StartBlock(string what, [CallerFilePath] string file = "", [CallerMemberName] string member = "", [CallerLineNumber] int line = 0)
