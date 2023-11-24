@@ -154,7 +154,7 @@ internal sealed class MappingBuilder : IDisposable
         {
             BuildMapFromProtobufExtensionMethod(namespaces);
         }
-        else if(!isProtobufSource && !isProtobufTarget)
+        else if (!isProtobufSource && !isProtobufTarget)
         {
             BuildMapExtensionMethod(namespaces);
         }
@@ -191,7 +191,7 @@ internal sealed class MappingBuilder : IDisposable
             {
                 WriteIndentedLine("var target = self is null ? throw new ArgumentNullException(nameof(self)) :");
                 namespaces.Add(typeof(ArgumentNullException));
-                Indent(); 
+                Indent();
             }
             else
             {
@@ -291,7 +291,7 @@ internal sealed class MappingBuilder : IDisposable
             parameters[i + 1] = $"{parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}{nullableAnnotation} {parameter.Name}{optionalValue}";
         }
 
-        StartBlock($"public static {fullyQualifiedDestination} Map{(_mappingContext.LongName ?  _destination.Name : string.Empty)}({string.Join(", ", parameters)})");
+        StartBlock($"public static {fullyQualifiedDestination} Map{(_mappingContext.LongName ? _destination.Name : string.Empty)}({string.Join(", ", parameters)})");
 
         if (!_source.IsValueType)
         {
@@ -613,12 +613,21 @@ internal sealed class MappingBuilder : IDisposable
     {
         foreach (var (sourceProperty, destinationProperty) in collections)
         {
-            var sourceType = sourceProperty.GetCollectionType();
-            var destinationType = destinationProperty.GetCollectionType();
-
-            if (sourceType != null && destinationType != null)
+            if (sourceProperty.IsEnumerableCollection() && destinationProperty.IsMutableCollection())
             {
-                WriteCollectionElementMapping(sourceProperty, destinationProperty, sourceType, destinationType, _indentWriter, prefix, postfix);
+                var sourceType = sourceProperty.GetCollectionType();
+                var destinationType = destinationProperty.GetCollectionType();
+
+                if (sourceType != null && destinationType != null)
+                {
+                    WriteCollectionElementMapping(sourceProperty, destinationProperty, sourceType, destinationType, _indentWriter, prefix, postfix);
+                }
+            }
+            else
+            {
+                // TODO: diagnostics
+
+                WriteIndentedLine($"// Can't map {sourceProperty.FullyQualifiedName()} to {destinationProperty.FullyQualifiedName()}.");
             }
         }
     }
