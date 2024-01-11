@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package ProtobufDotNet;
 
-enum Testing { One = 0; Two = 1; Three = 2; }
+enum TestEnum { One = 0; Two = 1; Three = 2; }
 
 message TestSubSubMessage {
     string StringMember = 1;
@@ -34,14 +34,14 @@ message TestMessage {
         sint64 OneOfAMember = 7;
         sint64 OneOfBMember = 8;
     }
-    Testing EnumMember = 9;
+    TestEnum EnumMember = 9;
     bytes DataMember = 10;
     optional bytes OptionalDataMember = 11;
     TestSubMessage1 TestSubMessageMember = 12;
     repeated string StringsMember = 13;
     repeated TestSubMessage1 TestSubMessagesMember = 14;
     TestSubMessage2 TestSubMessage2Member = 15;
-    repeated Testing EnumListMember = 16;
-    optional Testing NullableEnumMember = 17;
+    repeated TestEnum EnumListMember = 16;
+    optional TestEnum NullableEnumMember = 17;
     TestStruct TestStructMember = 18;
 }

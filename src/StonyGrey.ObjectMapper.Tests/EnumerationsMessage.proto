@@ -2,8 +2,8 @@ syntax = "proto3";
 
 package ProtobufDotNet;
 
-enum Testing { One = 0; Two = 1; Three = 2; }
+enum TestEnum { One = 0; Two = 1; Three = 2; }
 
 message EnumerationsMessage {
-    Testing EnumMember = 1;
+    TestEnum EnumMember = 1;
 }
