@@ -57,12 +57,40 @@ namespace StonyGrey.ObjectMapper.Extensions
 
             foreach (var memberSymbol in memberSymbols)
             {
-                if (memberSymbol is IMethodSymbol methodSymbol
-                    && methodSymbol.Parameters.Length == 1
-                    && SymbolEqualityComparer.Default.Equals(source.Type, methodSymbol.Parameters[0].Type)
-                    && SymbolEqualityComparer.Default.Equals(target.Type, methodSymbol.ReturnType))
+                if (memberSymbol is IMethodSymbol methodSymbol)
                 {
-                    return methodSymbol.Name;
+                    if (methodSymbol.Parameters.Length == 1)
+                    {
+                        var compatibleParameter = SymbolEqualityComparer.Default.Equals(source.Type, methodSymbol.Parameters[0].Type);
+
+                        if (!compatibleParameter)
+                        {
+                            if (!source.Type.IsValueType && methodSymbol.Parameters[0].Type.NullableAnnotation == NullableAnnotation.Annotated)
+                            {
+                                var n = methodSymbol.Parameters[0].Type as INamedTypeSymbol;
+                                var p = n?.TypeArguments.FirstOrDefault() as INamedTypeSymbol;
+                                compatibleParameter = p != null && SymbolEqualityComparer.Default.Equals(source.Type, p);
+                            }
+                        }
+
+                        if (compatibleParameter)
+                        {
+                            if (SymbolEqualityComparer.Default.Equals(target.Type, methodSymbol.ReturnType))
+                            {
+                                return methodSymbol.Name;
+                            }
+
+                            if (target.Type.NullableAnnotation == NullableAnnotation.Annotated)
+                            {
+                                var n = target.Type as INamedTypeSymbol;
+                                var r = n!.TypeArguments.FirstOrDefault() as INamedTypeSymbol;
+                                if (r != null && SymbolEqualityComparer.Default.Equals(methodSymbol.ReturnType, r))
+                                {
+                                    return methodSymbol.Name;
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
