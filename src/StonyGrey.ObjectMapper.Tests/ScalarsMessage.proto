@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package ProtobufDotNet;
+
+// .proto       C#
+// double       double
+// float        float
+// int32        int
+// int64        long
+// uint32       uint
+// uint64       ulong
+// sint32       int
+// sint64       long
+// fixed32      uint
+// fixed64      ulong
+// sfixed32     int
+// sfixed64     long
+// bool         bool
+// string       string
+// bytes        ByteString
+message ScalarsMessage {
+    double DoubleMember = 1;        // double -->   double
+    float FloatMember = 2;          // float -->    float
+    int32 Int32Member = 3;          // int32 -->    int
+    int64 Int64Member = 4;          // int64 -->    long
+    uint32 Uint32Member = 5;        // uint32 -->   uint
+    uint64 Uint64Member = 6;        // uint64 -->   ulong
+    sint32 Sint32Member = 7;        // sint32 -->   int
+    sint64 Sint64Member = 8;        // sint64 -->   long
+    fixed32 Fixed32Member = 9;      // fixed32 -->  uint
+    fixed64 Fixed64Member = 10;     // fixed64 -->  ulong
+    sfixed32 Sfixed32Member = 11;   // sfixed32 --> int
+    sfixed64 Sfixed64Member = 12;   // sfixed64 --> long
+    bool BoolMember = 13;           // bool -->     bool
+    string StringMember = 14;       // string -->   string
+    bytes BytesMember = 15;         // bytes -->    ByteString
+}

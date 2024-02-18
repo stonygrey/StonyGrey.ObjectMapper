@@ -1,211 +1,178 @@
-﻿using StonyGrey.ObjectMapper.Configuration;
-using StonyGrey.ObjectMapper.Extensions;
-
-using Microsoft.CodeAnalysis;
+﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
+
+using StonyGrey.ObjectMapper.Configuration;
+using StonyGrey.ObjectMapper.Extensions;
 
 using System.CodeDom.Compiler;
 using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Reflection;
 using System.Text;
 
-namespace StonyGrey.ObjectMapper;
+using Targets = System.Collections.Immutable.ImmutableArray<(Microsoft.CodeAnalysis.SyntaxNode node, Microsoft.CodeAnalysis.INamedTypeSymbol source, Microsoft.CodeAnalysis.INamedTypeSymbol destination, StonyGrey.ObjectMapper.MappingContext context)?>;
 
-internal sealed class MappingBuilder
+namespace StonyGrey.ObjectMapper;
+internal sealed class MappingBuilder : IDisposable
 {
-    private static readonly SymbolDisplayFormat _format = new SymbolDisplayFormat(
+    private static readonly SymbolDisplayFormat _format = new(
                typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
                genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters | SymbolDisplayGenericsOptions.IncludeTypeConstraints | SymbolDisplayGenericsOptions.IncludeVariance
            );
 
-    internal bool IsProtobufTarget { get; private set; }
+    private readonly Targets _targets;
+    private readonly INamedTypeSymbol _source;
+    private readonly INamedTypeSymbol _destination;
+    private readonly ImmutableArray<IPropertySymbol> _destinationProperties;
+    private readonly MappingContext _mappingContext;
+    private readonly Compilation _compilation;
+    private readonly ConfigurationValues _configurationValues;
+    private readonly StringWriter _writer = new();
+    private readonly IndentedTextWriter _indentWriter;
+
+    public SourceText Text { get; private set; }
 
     public MappingBuilder(INamedTypeSymbol source, INamedTypeSymbol destination, ImmutableArray<IPropertySymbol> destinationProperties,
-        MappingContext context, Compilation compilation, ConfigurationValues configurationValues) =>
-        this.Text = this.Build(source, destination, destinationProperties, context, compilation, configurationValues);
-
-    private SourceText Build(INamedTypeSymbol source, INamedTypeSymbol destination, ImmutableArray<IPropertySymbol> destinationProperties,
-        MappingContext context, Compilation compilation, ConfigurationValues configurationValues)
+        MappingContext mappingContext, Compilation compilation, ConfigurationValues configurationValues, Targets targets)
     {
-        using var writer = new StringWriter();
-        using var indentWriter = new IndentedTextWriter(writer,
-            configurationValues.IndentStyle == IndentStyle.Tab ? "\t" : new string(' ', (int)configurationValues.IndentSize));
+        _source = source;
+        _destination = destination;
+        _destinationProperties = destinationProperties;
+        _mappingContext = mappingContext;
+        _compilation = compilation;
+        _configurationValues = configurationValues;
+        _targets = targets;
 
-        var namespaces = new NamespaceGatherer();
+        _indentWriter = new(_writer, _configurationValues.IndentStyle == IndentStyle.Tab ? "\t" : new string(' ', (int)_configurationValues.IndentSize));
+
+        Text = Build();
+    }
+
+    private SourceText Build()
+    {
+        NamespaceGatherer? namespaces = new();
         var emittedNamespace = false;
 
-        if (context.ContainingNamespaceKind != ContainingNamespaceKind.Global)
+        if (_mappingContext.ContainingNamespaceKind != ContainingNamespaceKind.Global)
         {
-            if (context.ContainingNamespaceKind == ContainingNamespaceKind.Source)
+            if (_mappingContext.ContainingNamespaceKind == ContainingNamespaceKind.Source)
             {
-                if (source.ContainingNamespace.IsGlobalNamespace ||
-                    !source.ContainingNamespace.Contains(destination.ContainingNamespace))
+                if (_source.ContainingNamespace.IsGlobalNamespace ||
+                    !_source.ContainingNamespace.Contains(_destination.ContainingNamespace))
                 {
-                    namespaces.Add(destination.ContainingNamespace);
+                    namespaces.Add(_destination.ContainingNamespace);
                 }
 
-                if (!source.ContainingNamespace.IsGlobalNamespace)
+                if (!_source.ContainingNamespace.IsGlobalNamespace)
                 {
-                    indentWriter.WriteLine($"namespace {source.ContainingNamespace.ToDisplayString()}");
-                    indentWriter.WriteLine("{");
-                    indentWriter.Indent++;
+                    _indentWriter.WriteLine($"namespace {_source.ContainingNamespace.ToDisplayString()}");
+                    _indentWriter.WriteLine("{");
+                    _indentWriter.Indent++;
                     emittedNamespace = true;
                 }
             }
-            else if (context.ContainingNamespaceKind == ContainingNamespaceKind.Destination)
+            else if (_mappingContext.ContainingNamespaceKind == ContainingNamespaceKind.Destination)
             {
-                if (destination.ContainingNamespace.IsGlobalNamespace ||
-                    !destination.ContainingNamespace.Contains(source.ContainingNamespace))
+                if (_destination.ContainingNamespace.IsGlobalNamespace ||
+                    !_destination.ContainingNamespace.Contains(_source.ContainingNamespace))
                 {
-                    namespaces.Add(source.ContainingNamespace);
+                    namespaces.Add(_source.ContainingNamespace);
                 }
 
-                if (!destination.ContainingNamespace.IsGlobalNamespace)
+                if (!_destination.ContainingNamespace.IsGlobalNamespace)
                 {
-                    indentWriter.WriteLine($"namespace {destination.ContainingNamespace.ToDisplayString()}");
-                    indentWriter.WriteLine("{");
-                    indentWriter.Indent++;
+                    _indentWriter.WriteLine($"namespace {_destination.ContainingNamespace.ToDisplayString()}");
+                    _indentWriter.WriteLine("{");
+                    _indentWriter.Indent++;
                     emittedNamespace = true;
                 }
             }
         }
         else
         {
-            namespaces.Add(source.ContainingNamespace);
-            namespaces.Add(destination.ContainingNamespace);
+            namespaces.Add(_source.ContainingNamespace);
+            namespaces.Add(_destination.ContainingNamespace);
         }
 
-        this.BuildType(source, destination, destinationProperties, context, compilation, indentWriter, namespaces);
+        BuildType(namespaces);
 
         if (emittedNamespace)
         {
-            indentWriter.Indent--;
-            indentWriter.WriteLine("}");
+            _indentWriter.Indent--;
+            _indentWriter.WriteLine("}");
         }
-        indentWriter.WriteLine("");
+        _indentWriter.WriteLine("");
 
-        var append = string.Join(Environment.NewLine, string.Join(Environment.NewLine, context.OtherNamespaces.Select(e => $"using {e};").AsEnumerable()), $"{Environment.NewLine}#nullable enable{Environment.NewLine}");
+        var append = $"{Environment.NewLine}#nullable enable{Environment.NewLine}";
 
         var code = namespaces.Values.Count > 0 ?
             string.Join(Environment.NewLine,
                 string.Join(Environment.NewLine, namespaces.Values.Select(_ => $"using {_};")),
-                string.Empty, append, string.Empty, writer.ToString()) :
-            string.Join(Environment.NewLine, append, string.Empty, writer.ToString());
+                string.Empty, append, string.Empty, _writer.ToString()) :
+            string.Join(Environment.NewLine, append, string.Empty, _writer.ToString());
 
-        return SourceText.From(code, Encoding.UTF8);
+        var name = Assembly.GetExecutingAssembly().GetName();
+        code = $"// Generated by {name.Name} v{name.Version} at {DateTime.Now}{Environment.NewLine}{Environment.NewLine}{code}";
+
+        var sourceText = SourceText.From(code, Encoding.UTF8);
+
+        Debug.WriteLine(sourceText);
+
+        return sourceText;
     }
 
-    private void BuildType(INamedTypeSymbol source, INamedTypeSymbol destination, ImmutableArray<IPropertySymbol> destinationProperties,
-        MappingContext context, Compilation compilation, IndentedTextWriter indentWriter, NamespaceGatherer namespaces)
+    private void BuildType(NamespaceGatherer namespaces)
     {
-        indentWriter.WriteLine($"public static partial class {source.Name}MappingExtensions");
-        indentWriter.WriteLine("{");
-        indentWriter.Indent++;
+        _indentWriter.WriteLine($"public static partial class MappingExtensions");
+        _indentWriter.WriteLine("{");
+        _indentWriter.Indent++;
 
-        var constructors = destination.Constructors.Where(_ => _.DeclaredAccessibility == Accessibility.Public ||
-            destination.ContainingAssembly.ExposesInternalsTo(compilation.Assembly) && _.DeclaredAccessibility == Accessibility.Friend).ToArray();
+        var constructors = _destination.Constructors.Where(_ => _.DeclaredAccessibility == Accessibility.Public ||
+            (_destination.ContainingAssembly.ExposesInternalsTo(_compilation.Assembly) && _.DeclaredAccessibility == Accessibility.Friend)).ToArray();
 
-        if (context.IsProtobuf)
-        {
-            var imessage = compilation.GetTypeByMetadataName("Google.Protobuf.IMessage");
-            this.IsProtobufTarget = imessage != null && compilation.ClassifyCommonConversion(destination, imessage).IsImplicit;
-        }
+        var imessage = _compilation.GetTypeByMetadataName("Google.Protobuf.IMessage");
+        var isProtobufSource = imessage != null && _compilation.ClassifyCommonConversion(_source, imessage).IsImplicit;
+        var isProtobufTarget = imessage != null && _compilation.ClassifyCommonConversion(_destination, imessage).IsImplicit;
 
         for (var i = 0; i < constructors.Length; i++)
         {
             var constructor = constructors[i];
 
-            if (context.IsProtobuf)
+            if (!isProtobufSource && isProtobufTarget)
             {
-                if (this.IsProtobufTarget)
+                if (constructor.Parameters.Length == 0)
                 {
-                    if (constructor.Parameters.Length == 0)
-                    {
-                        MappingBuilder.BuildMapToProtobufExtensionMethod(source, destination, destinationProperties, constructor, namespaces, indentWriter);
-                    }
+                    BuildMapToProtobufExtensionMethod(constructor, namespaces);
                 }
-                else
-                {
-                    MappingBuilder.BuildMapFromProtobufExtensionMethod(source, destination, destinationProperties, constructor, namespaces, indentWriter);
-                }
+            }
+            else if (isProtobufSource && !isProtobufTarget)
+            {
+                BuildMapFromProtobufExtensionMethod(namespaces, constructor);
             }
             else
             {
-                MappingBuilder.BuildMapExtensionMethod(source, destination, destinationProperties.Select(e => e.Name).ToImmutableArray(), constructor, namespaces, indentWriter);
+                BuildMapExtensionMethod(constructor, namespaces);
             }
-            
+
             if (i < constructors.Length - 1)
             {
-                indentWriter.WriteLine();
+                _indentWriter.WriteLine();
             }
         }
 
-        if (context.IsProtobuf && !this.IsProtobufTarget)
+        if (isProtobufSource && !isProtobufTarget)
         {
-            MappingBuilder.BuildMapFromProtobufExtensionMethodWithTarget(source, destination, destinationProperties, namespaces, indentWriter);
+            BuildMapFromProtobufExtensionMethod(namespaces);
         }
 
-        indentWriter.Indent--;
-        indentWriter.WriteLine("}");
+        _indentWriter.Indent--;
+        _indentWriter.WriteLine("}");
     }
 
-    private static void BuildMapExtensionMethod(ITypeSymbol source, ITypeSymbol destination, ImmutableArray<string> propertyNames,
-        IMethodSymbol constructor, NamespaceGatherer namespaces, IndentedTextWriter indentWriter)
+    private void BuildMapExtensionMethod(IMethodSymbol constructor, NamespaceGatherer namespaces)
     {
-        var parameters = new string[constructor.Parameters.Length + 1];
-        parameters[0] = $"this {source.Name} self";
-
-        for (var i = 0; i < constructor.Parameters.Length; i++)
-        {
-            var parameter = constructor.Parameters[i];
-            namespaces.Add(parameter.Type.ContainingNamespace);
-            var nullableAnnotation = parameter.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
-            var optionalValue = parameter.HasExplicitDefaultValue ? $" = {parameter.ExplicitDefaultValue.GetDefaultValue()}" : string.Empty;
-            parameters[i + 1] = $"{parameter.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)}{nullableAnnotation} {parameter.Name}{optionalValue}";
-        }
-
-        indentWriter.WriteLine($"public static {destination.Name} MapTo{destination.Name}({string.Join(", ", parameters)}) =>");
-        indentWriter.Indent++;
-
-        if (!source.IsValueType)
-        {
-            indentWriter.WriteLine("self is null ? throw new ArgumentNullException(nameof(self)) :");
-            namespaces.Add(typeof(ArgumentNullException));
-            indentWriter.Indent++;
-        }
-
-        if (constructor.Parameters.Length == 0)
-        {
-            indentWriter.WriteLine($"new {destination.Name}");
-        }
-        else
-        {
-            indentWriter.WriteLine(
-                $"new {destination.Name}({string.Join(", ", constructor.Parameters.Select(_ => _.Name))})");
-        }
-
-        indentWriter.WriteLine("{");
-        indentWriter.Indent++;
-
-        foreach (var propertyName in propertyNames)
-        {
-            indentWriter.WriteLine($"{propertyName} = self.{propertyName},");
-        }
-
-        indentWriter.Indent--;
-        indentWriter.WriteLine("};");
-
-        if (!source.IsValueType)
-        {
-            indentWriter.Indent--;
-        }
-
-        indentWriter.Indent--;
-    }
-
-    private static void BuildMapToProtobufExtensionMethod(ITypeSymbol source, ITypeSymbol destination, ImmutableArray<IPropertySymbol> destinationProperties, IMethodSymbol constructor, NamespaceGatherer namespaces, IndentedTextWriter indentWriter)
-    {
-        var fullyQualifiedSource = $"global::{source.ContainingNamespace.ToDisplayString()}.{source.Name}";
-        var fullyQualifiedDestination = $"global::{destination.ContainingNamespace.ToDisplayString()}.{destination.Name}";
+        var fullyQualifiedSource = _source.FullyQualifiedName();
+        var fullyQualifiedDestination = _destination.FullyQualifiedName();
 
         var parameters = new string[constructor.Parameters.Length + 1];
         parameters[0] = $"this {fullyQualifiedSource} self";
@@ -219,35 +186,130 @@ internal sealed class MappingBuilder
             parameters[i + 1] = $"{parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}{nullableAnnotation} {parameter.Name}{optionalValue}";
         }
 
-        indentWriter.WriteLine($"public static {fullyQualifiedDestination} MapToProtobuf({string.Join(", ", parameters)})");
-        indentWriter.WriteLine("{");
-        indentWriter.Indent++;
+        _indentWriter.WriteLine($"public static {fullyQualifiedDestination} MapTo{_destination.Name}({string.Join(", ", parameters)})");
+        _indentWriter.WriteLine("{");
+        _indentWriter.Indent++;
 
-        if (!source.IsValueType)
+        if (!_source.IsValueType)
         {
-            indentWriter.WriteLine("var mapped = self is null ? throw new ArgumentNullException(nameof(self)) :");
+            _indentWriter.WriteLine("var target = self is null ? throw new ArgumentNullException(nameof(self)) :");
             namespaces.Add(typeof(ArgumentNullException));
-            indentWriter.Indent++;
+            _indentWriter.Indent++;
         }
 
         if (constructor.Parameters.Length == 0)
         {
-            indentWriter.WriteLine($"new {fullyQualifiedDestination}();");
+            _indentWriter.WriteLine($"new {fullyQualifiedDestination}();");
         }
         else
         {
-            indentWriter.WriteLine(
+            _indentWriter.WriteLine(
                 $"new {fullyQualifiedDestination}({string.Join(", ", constructor.Parameters.Select(_ => _.Name))});");
         }
 
-        indentWriter.WriteLine();
-        indentWriter.Indent--;
+        _indentWriter.WriteLine();
+        _indentWriter.Indent--;
 
-        var remaining = new List<IPropertySymbol>();
-
-        foreach (var destinationProperty in destinationProperties)
+        foreach (var destinationProperty in _destinationProperties)
         {
-            if (source.GetBaseTypesAndThis().SelectMany(n => n.GetMembers(destinationProperty.Name).OfType<IPropertySymbol>()).SingleOrDefault() is not IPropertySymbol sourceProperty)
+            if (_source.GetBaseTypesAndThis().SelectMany(n => n.GetMembers(destinationProperty.Name).OfType<IPropertySymbol>()).SingleOrDefault() is not IPropertySymbol sourceProperty)
+            {
+                // TODO: diagnostics
+                continue;
+            }
+
+            if (destinationProperty.HasSetter())
+            {
+                if (sourceProperty.Type.IsAssignableTo(destinationProperty.Type))
+                {
+                    _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name};");
+                }
+                else
+                {
+                    string? methodName = null;
+
+                    if ((methodName = sourceProperty.GetConversionMethod(destinationProperty)) != null)
+                    {
+                        _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}.{methodName}();");
+                    }
+                    else if (destinationProperty.Type.TypeKind == TypeKind.Enum)
+                    {
+                        _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}.MapToEnum<{$"global::{destinationProperty.Type.ContainingNamespace.Name}.{destinationProperty.Type.Name}"}>();");
+                    }
+                    else
+                    {
+                        var (s, t) = _targets.Where(e => e.HasValue).Select(e => e!.Value).Where(e => SymbolEqualityComparer.Default.Equals(sourceProperty.Type, e.source) && SymbolEqualityComparer.Default.Equals(destinationProperty.Type, e.destination)).Select(e => (e.source, e.destination)).FirstOrDefault();
+                        if (s != null && t != null)
+                        {
+                            var nullConditional = destinationProperty.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
+                            _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}{nullConditional}.MapTo{destinationProperty.Name}();");
+                        }
+                    }
+                }
+            }
+            else if (sourceProperty.IsEnumerableCollection())
+            {
+                List<(IPropertySymbol sourceProperty, IPropertySymbol destinationProperty)>? collections = new() { (sourceProperty, destinationProperty) };
+                MapCollections(collections, _indentWriter, "target.", string.Empty);
+            }
+            else
+            {
+                // TODO: diagnostics
+
+                _indentWriter.WriteLine($"// Can't map {sourceProperty.FullyQualifiedName()} to {destinationProperty.FullyQualifiedName()}.");
+            }
+        }
+
+        _indentWriter.WriteLine("return target;");
+
+        _indentWriter.Indent--;
+        _indentWriter.WriteLine("}");
+    }
+
+    private void BuildMapToProtobufExtensionMethod(IMethodSymbol constructor, NamespaceGatherer namespaces)
+    {
+        var fullyQualifiedSource = _source.FullyQualifiedName();
+        var fullyQualifiedDestination = _destination.FullyQualifiedName();
+
+        var parameters = new string[constructor.Parameters.Length + 1];
+        parameters[0] = $"this {fullyQualifiedSource} self";
+
+        for (var i = 0; i < constructor.Parameters.Length; i++)
+        {
+            var parameter = constructor.Parameters[i];
+            namespaces.Add(parameter.Type.ContainingNamespace);
+            var nullableAnnotation = parameter.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
+            var optionalValue = parameter.HasExplicitDefaultValue ? $" = {parameter.ExplicitDefaultValue.GetDefaultValue()}" : string.Empty;
+            parameters[i + 1] = $"{parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}{nullableAnnotation} {parameter.Name}{optionalValue}";
+        }
+
+        _indentWriter.WriteLine($"public static {fullyQualifiedDestination} MapToProtobuf({string.Join(", ", parameters)})");
+        _indentWriter.WriteLine("{");
+        _indentWriter.Indent++;
+
+        if (!_source.IsValueType)
+        {
+            _indentWriter.WriteLine("var target = self is null ? throw new ArgumentNullException(nameof(self)) :");
+            namespaces.Add(typeof(ArgumentNullException));
+            _indentWriter.Indent++;
+        }
+
+        if (constructor.Parameters.Length == 0)
+        {
+            _indentWriter.WriteLine($"new {fullyQualifiedDestination}();");
+        }
+        else
+        {
+            _indentWriter.WriteLine(
+                $"new {fullyQualifiedDestination}({string.Join(", ", constructor.Parameters.Select(_ => _.Name))});");
+        }
+
+        _indentWriter.WriteLine();
+        _indentWriter.Indent--;
+
+        foreach (var destinationProperty in _destinationProperties)
+        {
+            if (_source.GetBaseTypesAndThis().SelectMany(n => n.GetMembers(destinationProperty.Name).OfType<IPropertySymbol>()).SingleOrDefault() is not IPropertySymbol sourceProperty)
             {
                 // TODO: diagnostics
                 continue;
@@ -261,313 +323,366 @@ internal sealed class MappingBuilder
             // https://developers.google.com/protocol-buffers/docs/proto3#oneof
             //
 
-            if (sourceProperty.NullableAnnotation == NullableAnnotation.Annotated && destinationProperty.NullableAnnotation != NullableAnnotation.Annotated && sourceProperty.Type.IsValueType)
+            if (destinationProperty.HasSetter())
             {
-                remaining.Add(destinationProperty);
-            }
-            else if (SymbolEqualityComparer.Default.Equals(sourceProperty.Type, MappingContext.DateTimeTypeSymbol) && SymbolEqualityComparer.Default.Equals(destinationProperty.Type, MappingContext.Int64TypeSymbol))
-            {
-                indentWriter.WriteLine($"if (self.{destinationProperty.Name} != default(DateTime))");
-                indentWriter.WriteLine("{");
-                indentWriter.Indent++;
-                indentWriter.WriteLine($"mapped.{destinationProperty.Name} = self.{destinationProperty.Name}.ToBinary();");
-                indentWriter.Indent--;
-                indentWriter.WriteLine($"}}{Environment.NewLine}");
-            }
-            else if (SymbolEqualityComparer.Default.Equals(sourceProperty.Type, MappingContext.GuidTypeSymbol) && SymbolEqualityComparer.Default.Equals(destinationProperty.Type, MappingContext.ByteStringTypeSymbol))
-            {
-                indentWriter.WriteLine($"if (self.{destinationProperty.Name} != default(Guid))");
-                indentWriter.WriteLine("{");
-                indentWriter.Indent++;
-                indentWriter.WriteLine($"mapped.{destinationProperty.Name} = ByteString.CopyFrom(self.{destinationProperty.Name}.ToByteArray());");
-                indentWriter.Indent--;
-                indentWriter.WriteLine($"}}{Environment.NewLine}");
-            }
-            else if (sourceProperty.Type.IsByteArrayType())
-            {
-                indentWriter.WriteLine($"if (self.{destinationProperty.Name}?.Length > 0)");
-                indentWriter.WriteLine("{");
-                indentWriter.Indent++;
-                indentWriter.WriteLine($"mapped.{destinationProperty.Name} = ByteString.CopyFrom(self.{destinationProperty.Name}.ToArray());");
-                indentWriter.Indent--;
-                indentWriter.WriteLine($"}}{Environment.NewLine}");
-            }
-            else if (destinationProperty.Type.TypeKind == TypeKind.Enum)
-            {
-                indentWriter.WriteLine($"if (self.{destinationProperty.Name} != default)");
-                indentWriter.WriteLine("{");
-                indentWriter.Indent++;
-                indentWriter.WriteLine($"mapped.{destinationProperty.Name} = (global::{destination.ContainingNamespace.ToDisplayString()}.{destinationProperty.Type.Name})self.{destinationProperty.Name};");
-                indentWriter.Indent--;
-                indentWriter.WriteLine($"}}{Environment.NewLine}");
-            }
-            else
-            {
-                var destinationType = Type.GetType(destinationProperty.Type.ToDisplayString(_format));
-                var sourceType = Type.GetType(sourceProperty.Type.ToDisplayString(_format));
-
-                if (destinationType?.IsAssignableFrom(sourceType) == true)
+                if (sourceProperty.Type.IsAssignableTo(destinationProperty.Type))
                 {
-                    if (SymbolEqualityComparer.Default.Equals(destinationProperty.Type, MappingContext.StringTypeSymbol))
+                    if (destinationProperty.Type.IsStringType())
                     {
-                        indentWriter.WriteLine($"if (!string.IsNullOrWhiteSpace(self.{destinationProperty.Name}))");
-                        indentWriter.WriteLine("{");
-                        indentWriter.Indent++;
-                        indentWriter.WriteLine($"mapped.{destinationProperty.Name} = self.{destinationProperty.Name};");
-                        indentWriter.Indent--;
-                        indentWriter.WriteLine($"}}{Environment.NewLine}");
-                    }
-                    else if (sourceProperty.Type.IsByteArrayType())
-                    {
-                        indentWriter.WriteLine($"if (self.{destinationProperty.Name}?.Length > 0)");
-                        indentWriter.WriteLine("{");
-                        indentWriter.Indent++;
-                        indentWriter.WriteLine($"mapped.{destinationProperty.Name} = self.{destinationProperty.Name};");
-                        indentWriter.Indent--;
-                        indentWriter.WriteLine($"}}{Environment.NewLine}");
+                        _indentWriter.WriteLine($"if (!string.IsNullOrEmpty(self.{destinationProperty.Name}))");
+                        _indentWriter.WriteLine("{");
+                        _indentWriter.Indent++;
+                        _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name};");
+                        _indentWriter.Indent--;
+                        _indentWriter.WriteLine($"}}{Environment.NewLine}");
                     }
                     else
                     {
-                        indentWriter.WriteLine($"if (self.{destinationProperty.Name} != default)");
-                        indentWriter.WriteLine("{");
-                        indentWriter.Indent++;
-                        indentWriter.WriteLine($"mapped.{destinationProperty.Name} = self.{destinationProperty.Name};");
-                        indentWriter.Indent--;
-                        indentWriter.WriteLine($"}}{Environment.NewLine}");
+                        _indentWriter.WriteLine($"if (self.{destinationProperty.Name} != default)");
+                        _indentWriter.WriteLine("{");
+                        _indentWriter.Indent++;
+                        _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name};");
+                        _indentWriter.Indent--;
+                        _indentWriter.WriteLine($"}}{Environment.NewLine}");
                     }
                 }
                 else
                 {
-                    // TODO: diagnostics
+                    string? methodName = null;
+
+                    if ((methodName = sourceProperty.GetConversionMethod(destinationProperty)) != null)
+                    {
+                        _indentWriter.WriteLine($"if (self.{destinationProperty.Name} != default)");
+                        _indentWriter.WriteLine("{");
+                        _indentWriter.Indent++;
+                        _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}.{methodName}();");
+                        _indentWriter.Indent--;
+                        _indentWriter.WriteLine($"}}{Environment.NewLine}");
+                    }
+                    else if (destinationProperty.Type.TypeKind == TypeKind.Enum && sourceProperty.NullableAnnotation != NullableAnnotation.Annotated)
+                    {
+                        _indentWriter.WriteLine($"if (self.{destinationProperty.Name} != default)");
+                        _indentWriter.WriteLine("{");
+                        _indentWriter.Indent++;
+                        _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}.MapToEnum<{$"global::{destinationProperty.Type.ContainingNamespace.Name}.{destinationProperty.Type.Name}"}>();");
+                        _indentWriter.Indent--;
+                        _indentWriter.WriteLine($"}}{Environment.NewLine}");
+                    }
+                    else if (sourceProperty.Type.IsByteArrayType())
+                    {
+                        _indentWriter.WriteLine($"if (self.{destinationProperty.Name}?.Length > 0)");
+                        _indentWriter.WriteLine("{");
+                        _indentWriter.Indent++;
+                        _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}.MapTo{destinationProperty.Type.Name}();");
+                        _indentWriter.Indent--;
+                        _indentWriter.WriteLine($"}}{Environment.NewLine}");
+                    }
+                    else if (sourceProperty.NullableAnnotation == NullableAnnotation.Annotated && _destination.GetMembers($"Has{destinationProperty.Name}").OfType<IPropertySymbol>().SingleOrDefault() != null)
+                    {
+                        _indentWriter.WriteLine($"if (self.{destinationProperty.Name}.HasValue)");
+                        _indentWriter.WriteLine("{");
+                        _indentWriter.Indent++;
+                        _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}.Value;");
+                        _indentWriter.Indent--;
+                        _indentWriter.WriteLine($"}}{Environment.NewLine}");
+                    }
+                    else
+                    {
+                        var (s, t) = _targets.Where(e => e.HasValue).Select(e => e!.Value).Where(e => SymbolEqualityComparer.Default.Equals(sourceProperty.Type, e.source) && SymbolEqualityComparer.Default.Equals(destinationProperty.Type, e.destination)).Select(e => (e.source, e.destination)).FirstOrDefault();
+                        if (s != null && t != null)
+                        {
+
+                            _indentWriter.WriteLine($"if (self.{destinationProperty.Name} != default)");
+                            _indentWriter.WriteLine("{");
+                            _indentWriter.Indent++;
+                            var nullConditional = destinationProperty.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
+                            _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}{nullConditional}.MapToProtobuf();");
+                            _indentWriter.Indent--;
+                            _indentWriter.WriteLine($"}}{Environment.NewLine}");
+                        }
+                        else
+                        {
+                            // TODO: diagnostics
+
+                            _indentWriter.WriteLine($"// Can't map {sourceProperty.FullyQualifiedName()} to {destinationProperty.FullyQualifiedName()}.");
+                        }
+                    }
                 }
             }
+            else if (sourceProperty.IsEnumerableCollection())
+            {
+                List<(IPropertySymbol sourceProperty, IPropertySymbol destinationProperty)>? collections = new() { (sourceProperty, destinationProperty) };
+                MapCollections(collections, _indentWriter, "target.", string.Empty);
+            }
         }
 
-        foreach (var property in remaining)
-        {
-            //
-            // Ensure that 'optional' fields are set only when needed
-            //
-            indentWriter.WriteLine($"if (self.{property.Name}.HasValue)");
-            indentWriter.WriteLine("{");
-            indentWriter.Indent++;
-            indentWriter.WriteLine($"mapped.{property.Name} = self.{property.Name}.Value;");
-            indentWriter.Indent--;
-            indentWriter.WriteLine($"}}{Environment.NewLine}");
-        }
+        _indentWriter.WriteLine("return target;");
 
-        indentWriter.WriteLine("return mapped;");
-
-        indentWriter.Indent--;
-        indentWriter.WriteLine("}");
+        _indentWriter.Indent--;
+        _indentWriter.WriteLine("}");
     }
 
-    private static void BuildMapFromProtobufExtensionMethod(ITypeSymbol source, ITypeSymbol destination, ImmutableArray<IPropertySymbol> destinationProperties, IMethodSymbol constructor, NamespaceGatherer namespaces, IndentedTextWriter indentWriter)
+    private void BuildMapFromProtobufExtensionMethod(NamespaceGatherer namespaces, IMethodSymbol constructor = null)
     {
-        var fullyQualifiedSource = $"global::{source.ContainingNamespace.ToDisplayString()}.{source.Name}";
-        var fullyQualifiedDestination = $"global::{destination.ContainingNamespace.ToDisplayString()}.{destination.Name}";
+        var fullyQualifiedSource = _source.FullyQualifiedName();
+        var fullyQualifiedDestination = _destination.FullyQualifiedName();
 
-        var parameters = new string[constructor.Parameters.Length + 1];
+        var parameters = new string[constructor == null ? 1 : constructor.Parameters.Length + 1];
         parameters[0] = $"this {fullyQualifiedSource} self";
 
-        for (var i = 0; i < constructor.Parameters.Length; i++)
+        if (constructor == null)
         {
-            var parameter = constructor.Parameters[i];
-
-            if (parameter.Type.ContainingNamespace != null)
-            {
-                namespaces.Add(parameter.Type.ContainingNamespace);
-            }
-
-            var nullableAnnotation = parameter.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
-            var optionalValue = parameter.HasExplicitDefaultValue ? $" = {parameter.ExplicitDefaultValue.GetDefaultValue()}" : string.Empty;
-            parameters[i + 1] = $"{parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}{nullableAnnotation} {parameter.Name}{optionalValue}";
-        }
-
-        indentWriter.WriteLine($"public static {fullyQualifiedDestination} MapFromProtobuf({string.Join(", ", parameters)})");
-        indentWriter.WriteLine("{");
-        indentWriter.Indent++;
-
-        if (!source.IsValueType)
-        {
-            indentWriter.WriteLine("var mapped = self is null ? throw new ArgumentNullException(nameof(self)) :");
-            namespaces.Add(typeof(ArgumentNullException));
-            indentWriter.Indent++;
-        }
-
-        if (constructor.Parameters.Length == 0)
-        {
-            indentWriter.WriteLine($"new {fullyQualifiedDestination}()");
+            _indentWriter.WriteLine($"public static {fullyQualifiedDestination} MapFromProtobuf(this {fullyQualifiedSource} self, {fullyQualifiedDestination} target)");
         }
         else
         {
-            indentWriter.WriteLine(
-                $"new {fullyQualifiedDestination}({string.Join(", ", constructor.Parameters.Select(_ => _.Name))})");
+            for (var i = 0; i < constructor.Parameters.Length; i++)
+            {
+                var parameter = constructor.Parameters[i];
+
+                if (parameter.Type.ContainingNamespace != null)
+                {
+                    namespaces.Add(parameter.Type.ContainingNamespace);
+                }
+
+                var nullableAnnotation = parameter.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
+                var optionalValue = parameter.HasExplicitDefaultValue ? $" = {parameter.ExplicitDefaultValue.GetDefaultValue()}" : string.Empty;
+                parameters[i + 1] = $"{parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}{nullableAnnotation} {parameter.Name}{optionalValue}";
+            }
+
+            _indentWriter.WriteLine($"public static {fullyQualifiedDestination} MapFromProtobuf({string.Join(", ", parameters)})");
         }
 
-        indentWriter.WriteLine("{");
-        indentWriter.Indent++;
+        _indentWriter.WriteLine("{");
+        _indentWriter.Indent++;
 
-        var remaining = new List<IPropertySymbol>();
-
-        foreach (var destinationProperty in destinationProperties)
+        if (!_source.IsValueType)
         {
-            if (source.GetMembers(destinationProperty.Name).OfType<IPropertySymbol>().SingleOrDefault() is not IPropertySymbol sourceProperty)
+            if (constructor != null)
+            {
+                _indentWriter.WriteLine("var target = self is null ? throw new ArgumentNullException(nameof(self)) :");
+                _indentWriter.Indent++;
+            }
+
+            namespaces.Add(typeof(ArgumentNullException));
+        }
+        else
+        {
+            _indentWriter.WriteLine($"if (target == null) throw new ArgumentNullException(nameof(target));{Environment.NewLine}");
+        }
+
+        _indentWriter.Indent++;
+
+        if (constructor != null)
+        {
+            if (constructor.Parameters.Length == 0)
+            {
+                _indentWriter.WriteLine($"new {fullyQualifiedDestination}()");
+            }
+            else
+            {
+                _indentWriter.WriteLine(
+                    $"new {fullyQualifiedDestination}({string.Join(", ", constructor.Parameters.Select(_ => _.Name))})");
+            }
+
+            _indentWriter.WriteLine("{");
+        }
+
+        List<(IPropertySymbol sourceProperty, IPropertySymbol destinationProperty)> optionals = new();
+        List<(IPropertySymbol sourceProperty, IPropertySymbol destinationProperty)> collections = new();
+
+        foreach (var destinationProperty in _destinationProperties)
+        {
+            if (_source.GetMembers(destinationProperty.Name).OfType<IPropertySymbol>().SingleOrDefault() is not IPropertySymbol sourceProperty)
             {
                 // TODO: diagnostics
                 continue;
             }
 
-            if (destinationProperty.NullableAnnotation == NullableAnnotation.Annotated && sourceProperty.Type.IsValueType)
+            if (_source.GetMembers($"Has{destinationProperty.Name}").OfType<IPropertySymbol>().SingleOrDefault() != null && destinationProperty.HasSetter())
             {
-                remaining.Add(destinationProperty);
+                optionals.Add((sourceProperty, destinationProperty));
             }
-            else if (SymbolEqualityComparer.Default.Equals(sourceProperty.Type, MappingContext.Int64TypeSymbol) && SymbolEqualityComparer.Default.Equals(destinationProperty.Type, MappingContext.DateTimeTypeSymbol))
+            else if (sourceProperty.IsEnumerableCollection() && destinationProperty.IsMutableCollection())
             {
-                indentWriter.WriteLine($"{destinationProperty.Name} = DateTime.FromBinary(self.{destinationProperty.Name}),");
-            }
-            else if (SymbolEqualityComparer.Default.Equals(sourceProperty.Type, MappingContext.ByteStringTypeSymbol) && SymbolEqualityComparer.Default.Equals(destinationProperty.Type, MappingContext.GuidTypeSymbol))
-            {
-                indentWriter.WriteLine($"{destinationProperty.Name} = new Guid(self.{destinationProperty.Name}.ToByteArray()),");
-            }
-            else if (SymbolEqualityComparer.Default.Equals(sourceProperty.Type, MappingContext.ByteStringTypeSymbol) && destinationProperty.Type.Kind == SymbolKind.ArrayType && destinationProperty.Type.IsByteArrayType())
-            {
-                indentWriter.WriteLine($"{destinationProperty.Name} = self.{destinationProperty.Name}.ToByteArray(),");
-            }
-            else if (destinationProperty.Type.TypeKind == TypeKind.Enum)
-            {
-                var destinationType = Type.GetType(destinationProperty.Type.ToDisplayString(_format));
-                indentWriter.WriteLine($"{destinationProperty.Name} = (global::{destinationProperty.Type})self.{destinationProperty.Name},");
+                // Protobuf source is a collection that's not a string and we're not mapping it to a byte array
+                collections.Add((sourceProperty, destinationProperty));
             }
             else
             {
-                var destinationType = Type.GetType(destinationProperty.Type.ToDisplayString(_format));
-                var sourceType = Type.GetType(sourceProperty.Type.ToDisplayString(_format));
-                if (destinationType?.IsAssignableFrom(sourceType) == true)
+                if (constructor != null)
                 {
-                    indentWriter.WriteLine($"{destinationProperty.Name} = self.{destinationProperty.Name},");
+                    WritePropertyMapping(sourceProperty, destinationProperty, _indentWriter, string.Empty, $",{Environment.NewLine}");
                 }
                 else
                 {
-                    // TODO: diagnostics
+                    WritePropertyMapping(sourceProperty, destinationProperty, _indentWriter, "target.", $";{Environment.NewLine}");
                 }
             }
         }
 
-        indentWriter.Indent--;
-        indentWriter.WriteLine($"}};{Environment.NewLine}");
-
-        if (!source.IsValueType)
+        if (constructor != null)
         {
-            indentWriter.Indent--;
+            _indentWriter.WriteLine($"}};{Environment.NewLine}");
+        }
+        else
+        {
+            _indentWriter.Indent--;
         }
 
-        foreach (var destinationProperty in remaining)
+        //if (!_source.IsValueType)
+        //{
+        //    _indentWriter.Indent--;
+        //}
+
+        foreach (var (sourceProperty, destinationProperty) in optionals)
         {
-            var hasProperty = source.GetMembers($"Has{destinationProperty.Name}").OfType<IPropertySymbol>().SingleOrDefault();
-            if (hasProperty != null)
-            {
-                indentWriter.WriteLine($"if (self.Has{destinationProperty.Name})");
-                indentWriter.WriteLine("{");
-                indentWriter.Indent++;
-                indentWriter.WriteLine($"mapped.{destinationProperty.Name} = self.{destinationProperty.Name};");
-                indentWriter.Indent--;
-                indentWriter.WriteLine($"}}{Environment.NewLine}");
-            }
-            else
-            {
-                indentWriter.WriteLine($"mapped.{destinationProperty.Name} = self.{destinationProperty.Name};");
-            }
+            _indentWriter.WriteLine($"if (self.Has{destinationProperty.Name})");
+            _indentWriter.WriteLine("{");
+            _indentWriter.Indent++;
+
+            WritePropertyMapping(sourceProperty, destinationProperty, _indentWriter, "target.", $";");
+
+            _indentWriter.Indent--;
+            _indentWriter.WriteLine($"}}{Environment.NewLine}");
         }
 
-        indentWriter.WriteLine("return mapped;");
+        MapCollections(collections, _indentWriter, "target.", string.Empty);
 
-        indentWriter.Indent--;
-        indentWriter.WriteLine("}");
+        _indentWriter.WriteLine("return target;");
+
+        _indentWriter.Indent--;
+        _indentWriter.WriteLine($"}}{Environment.NewLine}");
     }
 
-    private static void BuildMapFromProtobufExtensionMethodWithTarget(ITypeSymbol source, ITypeSymbol destination, ImmutableArray<IPropertySymbol> destinationProperties, NamespaceGatherer namespaces, IndentedTextWriter indentWriter)
+    private void WritePropertyMapping(IPropertySymbol sourceProperty, IPropertySymbol destinationProperty, IndentedTextWriter _indentWriter, string prefix, string postfix)
     {
-        var fullyQualifiedSource = $"global::{source.ContainingNamespace.ToDisplayString()}.{source.Name}";
-        var fullyQualifiedDestination = $"global::{destination.ContainingNamespace.ToDisplayString()}.{destination.Name}";
+        string? methodName;
 
-        var parameters = new string[1];
-        parameters[0] = $"this {fullyQualifiedSource} self";
-
-        indentWriter.WriteLine($"public static {fullyQualifiedDestination} MapFromProtobuf(this {fullyQualifiedSource} self, {fullyQualifiedDestination} target)");
-        indentWriter.WriteLine("{");
-        indentWriter.Indent++;
-
-        if (!source.IsValueType)
+        if (sourceProperty.IsEnumerableCollection() && destinationProperty.IsMutableCollection())
         {
-            indentWriter.WriteLine("if (target == null) throw new ArgumentNullException(nameof(target));");
+            List<(IPropertySymbol sourceProperty, IPropertySymbol destinationProperty)>? collections = new() { (sourceProperty, destinationProperty) };
+            MapCollections(collections, _indentWriter, "target.", string.Empty);
         }
-
-        var remaining = new List<IPropertySymbol>();
-
-        foreach (var destinationProperty in destinationProperties)
+        else if (destinationProperty.HasSetter())
         {
-            if (source.GetMembers(destinationProperty.Name).OfType<IPropertySymbol>().SingleOrDefault() is not IPropertySymbol sourceProperty)
+            if (sourceProperty.Type.IsAssignableTo(destinationProperty.Type))
             {
-                // TODO: diagnostics
-                continue;
+                _indentWriter.WriteLine($"{prefix}{destinationProperty.Name} = self.{destinationProperty.Name}{postfix}");
             }
-
-            if (SymbolEqualityComparer.Default.Equals(sourceProperty.Type, MappingContext.Int64TypeSymbol) && SymbolEqualityComparer.Default.Equals(destinationProperty.Type, MappingContext.DateTimeTypeSymbol))
+            else if ((methodName = sourceProperty.GetConversionMethod(destinationProperty)) != null)
             {
-                indentWriter.WriteLine($"target.{destinationProperty.Name} = DateTime.FromBinary(self.{destinationProperty.Name});");
-            }
-            else if (SymbolEqualityComparer.Default.Equals(sourceProperty.Type, MappingContext.ByteStringTypeSymbol) && SymbolEqualityComparer.Default.Equals(destinationProperty.Type, MappingContext.GuidTypeSymbol))
-            {
-                indentWriter.WriteLine($"target.{destinationProperty.Name} = new Guid(self.{destinationProperty.Name}.ToByteArray());");
-            }
-            else if (SymbolEqualityComparer.Default.Equals(sourceProperty.Type, MappingContext.ByteStringTypeSymbol) && destinationProperty.Type.Kind == SymbolKind.ArrayType && destinationProperty.Type.IsByteArrayType())
-            {
-                indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}.ToByteArray();");
+                _indentWriter.WriteLine($"{prefix}{destinationProperty.Name} = self.{destinationProperty.Name}.{methodName}(){postfix}");
             }
             else if (destinationProperty.Type.TypeKind == TypeKind.Enum)
             {
-                var destinationType = Type.GetType(destinationProperty.Type.ToDisplayString(_format));
-                indentWriter.WriteLine($"target.{destinationProperty.Name} = (global::{destinationProperty.Type})self.{destinationProperty.Name};");
+                _indentWriter.WriteLine($"{prefix}{destinationProperty.Name} = self.{destinationProperty.Name}.MapToEnum<{$"global::{destinationProperty.Type.ContainingNamespace.Name}.{destinationProperty.Type.Name}"}>(){postfix}");
             }
-            else
+            else if (!sourceProperty.IsEnumerableCollection())
             {
-                var destinationType = Type.GetType(destinationProperty.Type.ToDisplayString(_format));
-                var sourceType = Type.GetType(sourceProperty.Type.ToDisplayString(_format));
-                if (destinationType?.IsAssignableFrom(sourceType) == true)
+                var nullConditional = destinationProperty.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
+                var (s, t) = _targets.Where(e => e.HasValue).Select(e => e!.Value).Where(e => SymbolEqualityComparer.Default.Equals(sourceProperty.Type, e.source) && SymbolEqualityComparer.Default.Equals(destinationProperty.Type, e.destination)).Select(e => (e.source, e.destination)).FirstOrDefault();
+                if (s != null && t != null)
                 {
-                    indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name};");
+                    _indentWriter.WriteLine($"{prefix}{destinationProperty.Name} = self.{destinationProperty.Name}{nullConditional}.MapFromProtobuf(){postfix}");
                 }
                 else
                 {
                     // TODO: diagnostics
-                }
-            }
-        }
 
-        foreach (var destinationProperty in remaining)
-        {
-            var hasProperty = source.GetMembers($"Has{destinationProperty.Name}").OfType<IPropertySymbol>().SingleOrDefault();
-            if (hasProperty != null)
-            {
-                indentWriter.WriteLine($"if (self.Has{destinationProperty.Name})");
-                indentWriter.WriteLine("{");
-                indentWriter.Indent++;
-                indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name};");
-                indentWriter.Indent--;
-                indentWriter.WriteLine($"}}{Environment.NewLine}");
+                    _indentWriter.WriteLine($"// Can't map {sourceProperty.FullyQualifiedName()} to {destinationProperty.FullyQualifiedName()}.");
+                }
             }
             else
             {
-                indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name};");
+                // TODO: diagnostics
+
+                _indentWriter.WriteLine($"// Can't map {sourceProperty.FullyQualifiedName()} to {destinationProperty.FullyQualifiedName()}.");
             }
         }
+        else
+        {
+            // TODO: diagnostics
 
-        indentWriter.WriteLine("return target;");
-
-        indentWriter.Indent--;
-        indentWriter.WriteLine("}");
+            _indentWriter.WriteLine($"// Can't map {sourceProperty.FullyQualifiedName()} to {destinationProperty.FullyQualifiedName()}.");
+        }
     }
 
-    public SourceText Text { get; private set; }
+    private void MapCollections(List<(IPropertySymbol sourceProperty, IPropertySymbol destinationProperty)> collections, IndentedTextWriter _indentWriter, string prefix, string postfix)
+    {
+        foreach (var (sourceProperty, destinationProperty) in collections)
+        {
+            var sourceType = sourceProperty.GetCollectionType();
+            var destinationType = destinationProperty.GetCollectionType();
+
+            if (sourceType != null && destinationType != null)
+            {
+                WriteCollectionElementMapping(sourceProperty, destinationProperty, sourceType, destinationType, _indentWriter, prefix, postfix);
+            }
+        }
+    }
+
+    private void WriteCollectionElementMapping(IPropertySymbol sourceProperty, IPropertySymbol destinationProperty, ITypeSymbol sourceTypeSymbol, ITypeSymbol destinationTypeSymbol, IndentedTextWriter _indentWriter, string prefix, string postfix)
+    {
+        string? methodName;
+
+        if (_compilation.ClassifyCommonConversion(sourceTypeSymbol, destinationTypeSymbol).IsImplicit)
+        {
+            _indentWriter.WriteLine($"foreach(var e in self.{sourceProperty.Name})");
+            _indentWriter.WriteLine("{");
+            _indentWriter.Indent++;
+            _indentWriter.WriteLine($"{prefix}{destinationProperty.Name}.Add(e);");
+            _indentWriter.Indent--;
+            _indentWriter.WriteLine($"}}{Environment.NewLine}");
+        }
+        else if ((methodName = sourceProperty.GetConversionMethod(destinationProperty)) != null)
+        {
+            _indentWriter.WriteLine($"foreach(var e in {prefix}{sourceProperty}");
+            _indentWriter.WriteLine("{");
+            _indentWriter.Indent++;
+            _indentWriter.WriteLine($"{destinationProperty}.Add(e.{methodName}());");
+            _indentWriter.Indent--;
+            _indentWriter.WriteLine("}");
+        }
+        else if (destinationTypeSymbol.TypeKind == TypeKind.Enum)
+        {
+            _indentWriter.WriteLine($"foreach(var e in self.{sourceProperty.Name})");
+            _indentWriter.WriteLine("{");
+            _indentWriter.Indent++;
+            var ss = $"{prefix}{destinationProperty.Name}.Add(e.MapToEnum<{$"global::{destinationProperty.ContainingNamespace.ToDisplayString()}.{destinationTypeSymbol.Name}"}>());";
+            _indentWriter.WriteLine($"{prefix}{destinationProperty.Name}.Add(e.MapToEnum<{$"global::{destinationProperty.ContainingNamespace.ToDisplayString()}.{destinationTypeSymbol.Name}"}>());");
+            _indentWriter.Indent--;
+            _indentWriter.WriteLine($"}}{Environment.NewLine}");
+        }
+        else
+        {
+            var (s, t) = _targets.Where(e => e.HasValue).Select(e => e!.Value).Where(e => SymbolEqualityComparer.Default.Equals(sourceTypeSymbol, e.source) && SymbolEqualityComparer.Default.Equals(destinationTypeSymbol, e.destination)).Select(e => (e.source, e.destination)).FirstOrDefault();
+            if (s != null && t != null)
+            {
+                var imessage = _compilation.GetTypeByMetadataName("Google.Protobuf.IMessage");
+                var isProtobufSource = imessage != null && _compilation.ClassifyCommonConversion(s, imessage).IsImplicit;
+                var isProtobufTarget = imessage != null && _compilation.ClassifyCommonConversion(t, imessage).IsImplicit;
+                var fn = isProtobufSource ? "MapFromProtobuf" : isProtobufTarget ? "MapToProtobuf" : "Map";
+
+                _indentWriter.WriteLine($"foreach(var e in self.{sourceProperty.Name})");
+                _indentWriter.WriteLine("{");
+                _indentWriter.Indent++;
+                _indentWriter.WriteLine($"{prefix}{destinationProperty.Name}.Add(e.{fn}());");
+                _indentWriter.Indent--;
+                _indentWriter.WriteLine($"}}{Environment.NewLine}");
+            }
+            else
+            {
+                // TODO: diagnostics
+
+                _indentWriter.WriteLine($"// Can't map {sourceProperty.FullyQualifiedName()} to {destinationProperty.FullyQualifiedName()}.");
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        _indentWriter.Dispose();
+        _writer.Dispose();
+    }
 }

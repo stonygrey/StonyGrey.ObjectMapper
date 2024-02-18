@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package ProtobufDotNet;
+
+message SubMessage2 {
+    string Value = 1;
+}
+
+message SubMessage1 {
+    string Value = 1;
+    SubMessage2 SubMessage2 = 2;
+}
+
+message SubMessage {
+    string Value = 1;
+    SubMessage1 SubMessage1 = 2;
+}
+
+message CollectionMessage {
+    string Value = 1;
+    repeated SubMessage SubMessages = 2;
+}

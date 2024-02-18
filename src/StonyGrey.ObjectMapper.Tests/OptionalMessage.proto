@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package ProtobufDotNet;
+
+message OptionalMessage {
+    optional int32 OptionalInt32Member = 1;
+    optional string OptionalStringMember = 2;
+    optional bytes OptionalBytesMember = 3;
+}
