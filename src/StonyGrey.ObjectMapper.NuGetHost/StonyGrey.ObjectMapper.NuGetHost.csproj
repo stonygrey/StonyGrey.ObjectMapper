@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+	</PropertyGroup>
+	<ItemGroup>
+	  <Compile Include="..\StonyGrey.ObjectMapper.Host\Program.cs" Link="Program.cs" />
+	  <Compile Include="..\StonyGrey.ObjectMapper.Host\TestMessage.cs" Link="TestMessage.cs" />
+	</ItemGroup>
+	<ItemGroup>
+		<!-- Note: https://docs.microsoft.com/en-us/nuget/Consume-Packages/managing-the-global-packages-and-cache-folders -->
+		<PackageReference Include="Google.Protobuf" Version="3.19.4" />
+		<PackageReference Include="Grpc.Tools" Version="2.44.0">
+		  <PrivateAssets>all</PrivateAssets>
+		  <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+		<PackageReference Include="StonyGrey.ObjectMapper" Version="2.0.0" />
+	</ItemGroup>
+	<ItemGroup>
+	  <Protobuf Include="..\StonyGrey.ObjectMapper.Host\TestMessage.proto">
+	    <Link>TestMessage.proto</Link>
+	  </Protobuf>
+	</ItemGroup>
+</Project>
