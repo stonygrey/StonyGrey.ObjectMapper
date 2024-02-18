@@ -2,25 +2,12 @@
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
+using System.CodeDom.Compiler;
+
 namespace StonyGrey.ObjectMapper.Extensions
 {
     public static class SymbolExtensions
     {
-        internal static ITypeSymbol StringTypeSymbol { get; private set; } = default!;
-        internal static ITypeSymbol ByteTypeSymbol { get; private set; } = default!;
-        internal static ITypeSymbol EnumerableTypeSymbol { get; private set; } = default!;
-        internal static INamedTypeSymbol CollectionTypeSymbol { get; private set; } = default!;
-        internal static INamedTypeSymbol GenericEnumerableTypeSymbol { get; private set; } = default!;
-
-        internal static void LoadCommonSymbols()
-        {
-            ByteTypeSymbol ??= MapGenerator.Compilation.GetTypeByMetadataName(typeof(byte).FullName)!;
-            StringTypeSymbol ??= MapGenerator.Compilation.GetTypeByMetadataName(typeof(string).FullName)!;
-            EnumerableTypeSymbol ??= MapGenerator.Compilation.GetTypeByMetadataName(typeof(System.Collections.IEnumerable).FullName)!;
-            CollectionTypeSymbol ??= MapGenerator.Compilation.GetTypeByMetadataName("System.Collections.Generic.ICollection`1")!;
-            GenericEnumerableTypeSymbol ??= MapGenerator.Compilation.GetTypeByMetadataName("System.Collections.Generic.IEnumerable`1")!;
-        }
-
         internal static bool IsAssignableTo(this ITypeSymbol sourceType, ITypeSymbol targetType)
         {
             var conversion = MapGenerator.Compilation.ClassifyCommonConversion(sourceType, targetType);
@@ -97,6 +84,76 @@ namespace StonyGrey.ObjectMapper.Extensions
             return null;
         }
 
+        internal static string? GetConversionMethod(this ITypeSymbol source, ITypeSymbol target)
+        {
+            var classAndTree = MapGenerator.Compilation.SyntaxTrees
+                .SelectMany(st => st.GetRoot()
+                    .DescendantNodes()
+                    .OfType<ClassDeclarationSyntax>()
+                    .Select(e => new { Tree = st, Class = e })
+                    .Where(r => r.Class.AttributeLists
+                        .SelectMany(al => al.Attributes)
+                        .Any(a => string.Equals(a.Name.GetText().ToString(), "MappingConversion", StringComparison.Ordinal) || string.Equals(a.Name.GetText().ToString(), "MappingConversionAttribute", StringComparison.Ordinal))))
+                .FirstOrDefault();
+
+            if (classAndTree == null)
+            {
+                return null;
+            }
+
+            var model = MapGenerator.Compilation.GetSemanticModel(classAndTree.Tree);
+
+            var namedClassSymbol = model.GetDeclaredSymbol(classAndTree.Class);
+
+            if (namedClassSymbol == null)
+            {
+                return null;
+            }
+
+            var memberSymbols = namedClassSymbol.GetMembers();
+
+            foreach (var memberSymbol in memberSymbols)
+            {
+                if (memberSymbol is IMethodSymbol methodSymbol)
+                {
+                    if (methodSymbol.Parameters.Length == 1)
+                    {
+                        var compatibleParameter = SymbolEqualityComparer.Default.Equals(source, methodSymbol.Parameters[0].Type);
+
+                        if (!compatibleParameter)
+                        {
+                            //if (!source.Type.IsValueType && methodSymbol.Parameters[0].Type.NullableAnnotation == NullableAnnotation.Annotated)
+                            {
+                                var n = methodSymbol.Parameters[0].Type as INamedTypeSymbol;
+                                var p = n?.TypeArguments.FirstOrDefault() as INamedTypeSymbol;
+                                compatibleParameter = p != null && SymbolEqualityComparer.Default.Equals(source, p);
+                            }
+                        }
+
+                        if (compatibleParameter)
+                        {
+                            if (SymbolEqualityComparer.Default.Equals(target, methodSymbol.ReturnType))
+                            {
+                                return methodSymbol.Name;
+                            }
+
+                            if (target.NullableAnnotation == NullableAnnotation.Annotated)
+                            {
+                                var n = target as INamedTypeSymbol;
+                                var r = n!.TypeArguments.FirstOrDefault() as INamedTypeSymbol;
+                                if (r != null && SymbolEqualityComparer.Default.Equals(methodSymbol.ReturnType, r))
+                                {
+                                    return methodSymbol.Name;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            return null;
+        }
+
         internal static string FullyQualifiedName(this ISymbol typeSymbol)
             => $"global::{typeSymbol.ContainingNamespace.ToDisplayString()}.{typeSymbol.Name}";
 
@@ -104,10 +161,17 @@ namespace StonyGrey.ObjectMapper.Extensions
             => typeSymbol.IsByteArrayType() ? "ByteArray" : typeSymbol.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
 
         public static bool IsByteArrayType(this ITypeSymbol typeSymbol)
-            => typeSymbol?.Kind == SymbolKind.ArrayType && typeSymbol is IArrayTypeSymbol symbol && SymbolEqualityComparer.Default.Equals(symbol.ElementType, ByteTypeSymbol);
+        {
+            var byteTypeSymbol = MapGenerator.Compilation.GetTypeByMetadataName(typeof(byte).FullName)!;
 
+            return typeSymbol?.Kind == SymbolKind.ArrayType && typeSymbol is IArrayTypeSymbol symbol && SymbolEqualityComparer.Default.Equals(symbol.ElementType, byteTypeSymbol);
+        }
         public static bool IsStringType(this ITypeSymbol typeSymbol)
-            => SymbolEqualityComparer.Default.Equals(typeSymbol, StringTypeSymbol);
+        {
+            var stringTypeSymbol = MapGenerator.Compilation.GetTypeByMetadataName(typeof(string).FullName)!;
+
+            return SymbolEqualityComparer.Default.Equals(typeSymbol, stringTypeSymbol);
+        }
 
         internal static bool HasSetter(this IPropertySymbol propertySymbol)
             => propertySymbol.SetMethod is not null && propertySymbol.SetMethod.DeclaredAccessibility != Accessibility.Private;
@@ -120,19 +184,26 @@ namespace StonyGrey.ObjectMapper.Extensions
         }
 
         internal static bool IsEnumerableCollection(this IPropertySymbol propertySymbol)
-            => MapGenerator.Compilation.ClassifyCommonConversion(propertySymbol.Type, EnumerableTypeSymbol!).IsImplicit
-            && !propertySymbol.Type.IsByteArrayType()
-            && !SymbolEqualityComparer.Default.Equals(propertySymbol.Type, StringTypeSymbol);
+        {
+            var stringTypeSymbol = MapGenerator.Compilation.GetTypeByMetadataName(typeof(string).FullName)!;
+            var enumerableTypeSymbol = MapGenerator.Compilation.GetTypeByMetadataName(typeof(System.Collections.IEnumerable).FullName)!;
+
+            return MapGenerator.Compilation.ClassifyCommonConversion(propertySymbol.Type, enumerableTypeSymbol!).IsImplicit
+                && !propertySymbol.Type.IsByteArrayType()
+                && !SymbolEqualityComparer.Default.Equals(propertySymbol.Type, stringTypeSymbol);
+        }
 
         internal static bool IsMutableCollection(this IPropertySymbol propertySymbol)
         {
+            var collectionTypeSymbol = MapGenerator.Compilation.GetTypeByMetadataName("System.Collections.Generic.ICollection`1")!;
+
             if (propertySymbol.Type is INamedTypeSymbol namedTypeSymbol)
             {
                 // If the property is parameterized, grab the parameter type (e.g. string) and construct an ICollection<T> to compare against
                 var typeArgument = namedTypeSymbol.TypeArguments.Length == 1 ? namedTypeSymbol.TypeArguments[0] : null;
                 if (typeArgument != null) // e.g. string
                 {
-                    var collectionNamedTypeSymbol = CollectionTypeSymbol.Construct(typeArgument); // ICollection<string>
+                    var collectionNamedTypeSymbol = collectionTypeSymbol.Construct(typeArgument); // ICollection<string>
                     return MapGenerator.Compilation.ClassifyCommonConversion(propertySymbol.Type, collectionNamedTypeSymbol).IsImplicit;
                 }
             }
@@ -142,13 +213,15 @@ namespace StonyGrey.ObjectMapper.Extensions
 
         internal static ITypeSymbol? GetCollectionType(this IPropertySymbol propertySymbol)
         {
+            var genericEnumerableTypeSymbol = MapGenerator.Compilation.GetTypeByMetadataName("System.Collections.Generic.IEnumerable`1")!;
+
             if (propertySymbol.Type is INamedTypeSymbol namedTypeSymbol)
             {
                 // If the property is parameterized, grab the parameter type (e.g. string) and construct an ICollection<T> to compare against
                 var typeArgument = namedTypeSymbol.TypeArguments.Length == 1 ? namedTypeSymbol.TypeArguments[0] : null;
                 if (typeArgument != null) // e.g. string
                 {
-                    var collectionNamedTypeSymbol = GenericEnumerableTypeSymbol.Construct(typeArgument); // IEnumerable<string>
+                    var collectionNamedTypeSymbol = genericEnumerableTypeSymbol.Construct(typeArgument); // IEnumerable<string>
                     if (MapGenerator.Compilation.ClassifyCommonConversion(propertySymbol.Type, collectionNamedTypeSymbol).IsImplicit)
                     {
                         return typeArgument;

@@ -37,8 +37,6 @@ internal sealed class MapGenerator : IIncrementalGenerator
 
             Compilation = model.Compilation;
 
-            SymbolExtensions.LoadCommonSymbols();
-
             if (symbol is not null)
             {
                 // Now we're checking to see if the containing symbol of the method symbol
