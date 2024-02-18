@@ -200,12 +200,12 @@ internal sealed class MappingBuilder : IDisposable
 
             if (constructor.Parameters.Length == 0)
             {
-                WriteIndentedLine($"new {fullyQualifiedDestination}();");
+                StartBlock($"new {fullyQualifiedDestination}()");
             }
             else
             {
-                WriteIndentedLine(
-                    $"new {fullyQualifiedDestination}({string.Join(", ", constructor.Parameters.Select(_ => _.Name))});");
+                StartBlock(
+                    $"new {fullyQualifiedDestination}({string.Join(", ", constructor.Parameters.Select(_ => _.Name))})");
             }
 
             if (!_source.IsValueType)
@@ -215,6 +215,15 @@ internal sealed class MappingBuilder : IDisposable
         }
 
         WriteIndentedLine();
+
+        // Use object initializer syntax if the destination type has a default constructor.
+        // Required for 'required' properties.
+
+        var collectionProperties = new List<(IPropertySymbol source, IPropertySymbol destination)>();
+
+        var assignTerminator = constructor != null ? "," : ";";
+
+        var targetPrefix = constructor != null ? string.Empty : "target.";
 
         foreach (var destinationProperty in _destinationProperties)
         {
@@ -228,7 +237,7 @@ internal sealed class MappingBuilder : IDisposable
             {
                 if (sourceProperty.Type.IsAssignableTo(destinationProperty.Type))
                 {
-                    WriteIndentedLine($"target.{destinationProperty.Name} = ({destinationProperty.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)})self.{destinationProperty.Name};");
+                    WriteIndentedLine($"{targetPrefix}{destinationProperty.Name} = ({destinationProperty.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)})self.{destinationProperty.Name}{assignTerminator}");
                 }
                 else
                 {
@@ -238,11 +247,11 @@ internal sealed class MappingBuilder : IDisposable
 
                     if ((methodName = sourceProperty.GetConversionMethod(destinationProperty)) != null)
                     {
-                        WriteIndentedLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}{nullableAnnotation}.{methodName}();");
+                        WriteIndentedLine($"{targetPrefix}{destinationProperty.Name} = self.{destinationProperty.Name}{nullableAnnotation}.{methodName}(){assignTerminator}");
                     }
                     else if (destinationProperty.Type.TypeKind == TypeKind.Enum)
                     {
-                        WriteIndentedLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}.MapToEnum<{$"global::{destinationProperty.Type.ContainingNamespace.Name}.{destinationProperty.Type.Name}"}>();");
+                        WriteIndentedLine($"{targetPrefix}{destinationProperty.Name} = self.{destinationProperty.Name}.MapToEnum<{$"global::{destinationProperty.Type.ContainingNamespace.Name}.{destinationProperty.Type.Name}"}>(){assignTerminator}");
                     }
                     else
                     {
@@ -250,15 +259,14 @@ internal sealed class MappingBuilder : IDisposable
                         if (s != null && t != null)
                         {
                             var nullConditional = sourceProperty.Type.IsReferenceType || sourceProperty.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
-                            WriteIndentedLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}{nullConditional}.Map{(_mappingContext.LongName ? ($"To{destinationProperty.Name}") : string.Empty)}();");
+                            WriteIndentedLine($"{targetPrefix}{destinationProperty.Name} = self.{destinationProperty.Name}{nullConditional}.Map{(_mappingContext.LongName ? ($"To{destinationProperty.Name}") : string.Empty)}(){assignTerminator}");
                         }
                     }
                 }
             }
             else if (sourceProperty.IsEnumerableCollection())
             {
-                List<(IPropertySymbol sourceProperty, IPropertySymbol destinationProperty)>? collections = new() { (sourceProperty, destinationProperty) };
-                MapCollections(collections, _indentWriter, "target.", string.Empty);
+                collectionProperties.Add((sourceProperty, destinationProperty));
             }
             else
             {
@@ -266,6 +274,17 @@ internal sealed class MappingBuilder : IDisposable
 
                 WriteIndentedLine($"// Can't map {sourceProperty.FullyQualifiedName()} to {destinationProperty.FullyQualifiedName()}.");
             }
+        }
+
+        if (constructor != null)
+        {
+            EndBlock(";");
+        }
+
+        foreach (var (sourceProperty, destinationProperty) in collectionProperties)
+        {
+            List<(IPropertySymbol sourceProperty, IPropertySymbol destinationProperty)>? collections = new() { (sourceProperty, destinationProperty) };
+            MapCollections(collections, _indentWriter, "target.", string.Empty);
         }
 
         WriteIndentedLine();

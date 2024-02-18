@@ -6,6 +6,6 @@
     <Nullable>enable</Nullable>
     <TargetFramework>net6.0</TargetFramework>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
-    <Version>3.0.5</Version>
+    <Version>3.0.6</Version>
   </PropertyGroup>
 </Project>
