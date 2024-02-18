@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package Protobuf;
+
+enum TestEnum { One = 0; Two = 1; }
+
+message TestMessage {
+    string String = 1;
+    int32 Int = 2;
+    optional int32 Optional = 3;
+    int32 NonOptional = 4;
+    bytes Guid = 5;
+    sint64 DateTime = 6;
+    oneof OneOf {
+        sint64 OneOfA = 7;
+        sint64 OneOfB = 8;
+    }
+    TestEnum TestEnum = 9;
+    bytes Data = 10;
+    optional bytes OptionalData = 11;
+}
