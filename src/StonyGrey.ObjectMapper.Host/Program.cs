@@ -34,7 +34,7 @@ var obj1 = new TestMessage()
     NonOptionalMember = 44,
     DateTimeMember = DateTime.Now,
     GuidMember = Guid.NewGuid(),
-    EnumMember = Testing.Two,
+    EnumMember = TestEnum.Two,
     DataMember = new byte[] { 1, 2, 3, 4, 5, 6 },
     OptionalDataMember = new byte[] { 7, 8 },
     TestSubMessageMember = new()
@@ -45,8 +45,8 @@ var obj1 = new TestMessage()
     StringsMember = new List<string>() { "a", "b", "c" },
     TestSubMessagesMember = new List<TestSubMessage1> { new TestSubMessage1() { StringMember = "abc" }, new TestSubMessage1() { StringMember = "def", TestSubSubMessageMember = new TestSubSubMessage("read-only") { StringMember = "ghi" } } },
     TestSubMessage2Member = testSub2,
-    EnumListMember = new List<Testing>() { Testing.Two },
-    NullableEnumMember = Testing.Two,
+    EnumListMember = new List<TestEnum>() { TestEnum.Two },
+    NullableEnumMember = TestEnum.Two,
     TestStructMember = new TestStruct() { StringMember = "asdf"}
 };
 

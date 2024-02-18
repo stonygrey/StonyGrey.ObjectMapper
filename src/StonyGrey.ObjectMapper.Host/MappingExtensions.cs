@@ -25,11 +25,14 @@ namespace Domain
         public static T MapToEnum<T>(this Enum e) where T : Enum
             => (T)e;
 
-        public static ProtobufDotNet.Testing MapToTesting(this Domain.Testing? e)
-            => e.HasValue ? (ProtobufDotNet.Testing)e.Value : default(ProtobufDotNet.Testing);
+        public static ProtobufDotNet.TestEnum MapToTesting(this Domain.TestEnum? e)
+            => e.HasValue ? (ProtobufDotNet.TestEnum)e.Value : default(ProtobufDotNet.TestEnum);
 
-        public static Domain.Testing MapToTesting(this ProtobufDotNet.Testing e)
-            => (Domain.Testing)e;
+        public static Domain.TestEnum MapToTesting(this ProtobufDotNet.TestEnum e)
+            => (Domain.TestEnum)e;
+
+        public static ProtobufDotNet.TestEnum MapToTesting(this Domain.TestEnum e)
+            => (ProtobufDotNet.TestEnum)e;
 
         public static ByteString MapToByteString(this byte[] value)
             => value == null ? ByteString.Empty : ByteString.CopyFrom(value);
