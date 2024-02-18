@@ -29,8 +29,7 @@ message TestMessage {
 ```
 
 Grpc.Tools will generate a C# class (that is too verbose in nature to include here).
-The StonyGrey.ObjectMapper will generate extension methods <code>MapToProtobuf()</code> and <code>MapFromProtobuf()</code>
-that map between this Grpc.Tools created class and a domain class, created by you. For example:
+The StonyGrey.ObjectMapper will generate extension methods that map between this Grpc.Tools created class and a domain class created by you. For example:
 
 ```csharp
 namespace Domain
@@ -87,12 +86,11 @@ Please see the [StonyGrey.ObjectMapper.Host project](https://github.com/stonygre
 StonyGrey.ObjectMapper will generate extension methods with the following signatures:
 
 ```csharp
-public static TargetClass MapFromProtobuf(this SourceClass self) {...}
-public static SourceClass MapToProtobuf(this TargetClass self) {...}
+public static DomainClass Map(this GrpcGeneratedClass self) {...}
+public static GrpcGeneratedClass Map(this DomainClass self) {...}
 ```
 
-Have a look under YourProject->Dependencies->Analyzers->StonyGrey.ObjectMapper->StonyGrey.ObjectMapper.MapGenerator
-
+The generated source can be found at YourProject->Dependencies->Analyzers->StonyGrey.ObjectMapper->StonyGrey.ObjectMapper.MapGenerator
 
 
 ## Mapping
@@ -126,7 +124,7 @@ Untested/ Unsupported.
 Mapping between properties is attempted in the following order:
 1. Simple assignment
 2. Conversion using the <code>MappingConversion</code> annotated class.
-3. Map()/ MapToProtobuf()/ MapFromProtobuf()
+3. Map()
 
 ### [Collections/ repeated](https://developers.google.com/protocol-buffers/docs/proto3#specifying_field_rules)
 The souce must implement <code>IEumerable<T></code> and the target <code>ICollection<T></code>.
