@@ -33,6 +33,11 @@ namespace Domain
             => _testSubMessage2StringsMember.Add(value);
     }
 
+    public struct TestStruct
+    {
+        public string StringMember { get; set; }
+    }
+
     public class TestMessage
     {
         public string? StringMember { get; set; }
@@ -55,5 +60,7 @@ namespace Domain
         public List<Testing> EnumListMember { get; set; } = new List<Testing>();
 
         public Testing? NullableEnumMember { get; set; }
+
+        public TestStruct TestStructMember { get; set; }
     }
 }
