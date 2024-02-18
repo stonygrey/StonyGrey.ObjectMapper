@@ -15,11 +15,6 @@ using Targets = System.Collections.Immutable.ImmutableArray<(Microsoft.CodeAnaly
 namespace StonyGrey.ObjectMapper;
 internal sealed class MappingBuilder : IDisposable
 {
-    private static readonly SymbolDisplayFormat _format = new(
-               typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
-               genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters | SymbolDisplayGenericsOptions.IncludeTypeConstraints | SymbolDisplayGenericsOptions.IncludeVariance
-           );
-
     private readonly Targets _targets;
     private readonly INamedTypeSymbol _source;
     private readonly INamedTypeSymbol _destination;
@@ -151,7 +146,7 @@ internal sealed class MappingBuilder : IDisposable
             }
             else
             {
-                BuildMapExtensionMethod(constructor, namespaces);
+                BuildMapExtensionMethod(namespaces, constructor);
             }
 
             if (i < constructors.Length - 1)
@@ -164,47 +159,64 @@ internal sealed class MappingBuilder : IDisposable
         {
             BuildMapFromProtobufExtensionMethod(namespaces);
         }
+        else if(!isProtobufSource && !isProtobufTarget)
+        {
+            BuildMapExtensionMethod(namespaces);
+        }
 
         _indentWriter.Indent--;
         _indentWriter.WriteLine("}");
     }
 
-    private void BuildMapExtensionMethod(IMethodSymbol constructor, NamespaceGatherer namespaces)
+    private void BuildMapExtensionMethod(NamespaceGatherer namespaces, IMethodSymbol? constructor = null)
     {
         var fullyQualifiedSource = _source.FullyQualifiedName();
         var fullyQualifiedDestination = _destination.FullyQualifiedName();
 
-        var parameters = new string[constructor.Parameters.Length + 1];
-        parameters[0] = $"this {fullyQualifiedSource} self";
-
-        for (var i = 0; i < constructor.Parameters.Length; i++)
+        if (constructor == null)
         {
-            var parameter = constructor.Parameters[i];
-            namespaces.Add(parameter.Type.ContainingNamespace);
-            var nullableAnnotation = parameter.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
-            var optionalValue = parameter.HasExplicitDefaultValue ? $" = {parameter.ExplicitDefaultValue.GetDefaultValue()}" : string.Empty;
-            parameters[i + 1] = $"{parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}{nullableAnnotation} {parameter.Name}{optionalValue}";
-        }
-
-        _indentWriter.WriteLine($"public static {fullyQualifiedDestination} MapTo{_destination.Name}({string.Join(", ", parameters)})");
-        _indentWriter.WriteLine("{");
-        _indentWriter.Indent++;
-
-        if (!_source.IsValueType)
-        {
-            _indentWriter.WriteLine("var target = self is null ? throw new ArgumentNullException(nameof(self)) :");
-            namespaces.Add(typeof(ArgumentNullException));
+            _indentWriter.WriteLine($"public static {fullyQualifiedDestination} Map{(_mappingContext.LongName ? ($"To{_destination.Name}") : string.Empty)}(this {fullyQualifiedSource} self, {fullyQualifiedDestination} target)");
+            _indentWriter.WriteLine("{");
             _indentWriter.Indent++;
-        }
-
-        if (constructor.Parameters.Length == 0)
-        {
-            _indentWriter.WriteLine($"new {fullyQualifiedDestination}();");
         }
         else
         {
-            _indentWriter.WriteLine(
-                $"new {fullyQualifiedDestination}({string.Join(", ", constructor.Parameters.Select(_ => _.Name))});");
+            var parameters = new string[constructor.Parameters.Length + 1];
+            parameters[0] = $"this {fullyQualifiedSource} self";
+
+            for (var i = 0; i < constructor.Parameters.Length; i++)
+            {
+                var parameter = constructor.Parameters[i];
+                namespaces.Add(parameter.Type.ContainingNamespace);
+                var nullableAnnotation = parameter.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
+                var optionalValue = parameter.HasExplicitDefaultValue ? $" = {parameter.ExplicitDefaultValue.GetDefaultValue()}" : string.Empty;
+                parameters[i + 1] = $"{parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}{nullableAnnotation} {parameter.Name}{optionalValue}";
+            }
+
+            _indentWriter.WriteLine($"public static {fullyQualifiedDestination} Map{(_mappingContext.LongName ? ($"To{_destination.Name}") : string.Empty)}({string.Join(", ", parameters)})");
+            _indentWriter.WriteLine("{");
+            _indentWriter.Indent++;
+
+            if (!_source.IsValueType)
+            {
+                _indentWriter.WriteLine("var target = self is null ? throw new ArgumentNullException(nameof(self)) :");
+                namespaces.Add(typeof(ArgumentNullException));
+                _indentWriter.Indent++; 
+            }
+            else
+            {
+                _indentWriter.Write("var target =");
+            }
+
+            if (constructor.Parameters.Length == 0)
+            {
+                _indentWriter.WriteLine($"new {fullyQualifiedDestination}();");
+            }
+            else
+            {
+                _indentWriter.WriteLine(
+                    $"new {fullyQualifiedDestination}({string.Join(", ", constructor.Parameters.Select(_ => _.Name))});");
+            }
         }
 
         _indentWriter.WriteLine();
@@ -228,9 +240,11 @@ internal sealed class MappingBuilder : IDisposable
                 {
                     string? methodName = null;
 
+                    var nullableAnnotation = sourceProperty.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
+
                     if ((methodName = sourceProperty.GetConversionMethod(destinationProperty)) != null)
                     {
-                        _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}.{methodName}();");
+                        _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}{nullableAnnotation}.{methodName}();");
                     }
                     else if (destinationProperty.Type.TypeKind == TypeKind.Enum)
                     {
@@ -241,8 +255,8 @@ internal sealed class MappingBuilder : IDisposable
                         var (s, t) = _targets.Where(e => e.HasValue).Select(e => e!.Value).Where(e => SymbolEqualityComparer.Default.Equals(sourceProperty.Type, e.source) && SymbolEqualityComparer.Default.Equals(destinationProperty.Type, e.destination)).Select(e => (e.source, e.destination)).FirstOrDefault();
                         if (s != null && t != null)
                         {
-                            var nullConditional = destinationProperty.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
-                            _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}{nullConditional}.MapTo{destinationProperty.Name}();");
+                            var nullConditional = sourceProperty.Type.IsReferenceType || sourceProperty.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
+                            _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}{nullConditional}.Map{(_mappingContext.LongName ? ($"To{destinationProperty.Name}") : string.Empty)}();");
                         }
                     }
                 }
@@ -283,25 +297,34 @@ internal sealed class MappingBuilder : IDisposable
             parameters[i + 1] = $"{parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}{nullableAnnotation} {parameter.Name}{optionalValue}";
         }
 
-        _indentWriter.WriteLine($"public static {fullyQualifiedDestination} MapToProtobuf({string.Join(", ", parameters)})");
+        _indentWriter.WriteLine($"public static {fullyQualifiedDestination} Map{(_mappingContext.LongName ?  _destination.Name : string.Empty)}({string.Join(", ", parameters)})");
         _indentWriter.WriteLine("{");
         _indentWriter.Indent++;
 
         if (!_source.IsValueType)
         {
             _indentWriter.WriteLine("var target = self is null ? throw new ArgumentNullException(nameof(self)) :");
-            namespaces.Add(typeof(ArgumentNullException));
             _indentWriter.Indent++;
-        }
-
-        if (constructor.Parameters.Length == 0)
-        {
-            _indentWriter.WriteLine($"new {fullyQualifiedDestination}();");
+            namespaces.Add(typeof(ArgumentNullException));
         }
         else
         {
-            _indentWriter.WriteLine(
-                $"new {fullyQualifiedDestination}({string.Join(", ", constructor.Parameters.Select(_ => _.Name))});");
+            _indentWriter.WriteLine($"var target = {Environment.NewLine}");
+        }
+
+        _indentWriter.Indent++;
+
+        if (constructor != null)
+        {
+            if (constructor.Parameters.Length == 0)
+            {
+                _indentWriter.WriteLine($"new {fullyQualifiedDestination}();");
+            }
+            else
+            {
+                _indentWriter.WriteLine(
+                    $"new {fullyQualifiedDestination}({string.Join(", ", constructor.Parameters.Select(_ => _.Name))});");
+            }
         }
 
         _indentWriter.WriteLine();
@@ -355,6 +378,7 @@ internal sealed class MappingBuilder : IDisposable
                         _indentWriter.WriteLine($"if (self.{destinationProperty.Name} != default)");
                         _indentWriter.WriteLine("{");
                         _indentWriter.Indent++;
+                        var nullConditional = sourceProperty.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
                         _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}.{methodName}();");
                         _indentWriter.Indent--;
                         _indentWriter.WriteLine($"}}{Environment.NewLine}");
@@ -373,7 +397,7 @@ internal sealed class MappingBuilder : IDisposable
                         _indentWriter.WriteLine($"if (self.{destinationProperty.Name}?.Length > 0)");
                         _indentWriter.WriteLine("{");
                         _indentWriter.Indent++;
-                        _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}.MapTo{destinationProperty.Type.Name}();");
+                        _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}?.MapTo{destinationProperty.Type.Name}();");
                         _indentWriter.Indent--;
                         _indentWriter.WriteLine($"}}{Environment.NewLine}");
                     }
@@ -391,14 +415,21 @@ internal sealed class MappingBuilder : IDisposable
                         var (s, t) = _targets.Where(e => e.HasValue).Select(e => e!.Value).Where(e => SymbolEqualityComparer.Default.Equals(sourceProperty.Type, e.source) && SymbolEqualityComparer.Default.Equals(destinationProperty.Type, e.destination)).Select(e => (e.source, e.destination)).FirstOrDefault();
                         if (s != null && t != null)
                         {
+                            if (sourceProperty.Type.IsReferenceType)
+                            {
+                                _indentWriter.WriteLine($"if (self.{destinationProperty.Name} != default)");
+                                _indentWriter.WriteLine("{");
+                                _indentWriter.Indent++;
+                            }
 
-                            _indentWriter.WriteLine($"if (self.{destinationProperty.Name} != default)");
-                            _indentWriter.WriteLine("{");
-                            _indentWriter.Indent++;
-                            var nullConditional = destinationProperty.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
-                            _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}{nullConditional}.MapToProtobuf();");
-                            _indentWriter.Indent--;
-                            _indentWriter.WriteLine($"}}{Environment.NewLine}");
+                            var nullConditional = sourceProperty.Type.IsReferenceType || sourceProperty.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
+                            _indentWriter.WriteLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}{nullConditional}.Map();");
+
+                            if (sourceProperty.Type.IsReferenceType)
+                            {
+                                _indentWriter.Indent--;
+                                _indentWriter.WriteLine($"}}{Environment.NewLine}");
+                            }
                         }
                         else
                         {
@@ -422,7 +453,7 @@ internal sealed class MappingBuilder : IDisposable
         _indentWriter.WriteLine("}");
     }
 
-    private void BuildMapFromProtobufExtensionMethod(NamespaceGatherer namespaces, IMethodSymbol constructor = null)
+    private void BuildMapFromProtobufExtensionMethod(NamespaceGatherer namespaces, IMethodSymbol? constructor = null)
     {
         var fullyQualifiedSource = _source.FullyQualifiedName();
         var fullyQualifiedDestination = _destination.FullyQualifiedName();
@@ -432,7 +463,7 @@ internal sealed class MappingBuilder : IDisposable
 
         if (constructor == null)
         {
-            _indentWriter.WriteLine($"public static {fullyQualifiedDestination} MapFromProtobuf(this {fullyQualifiedSource} self, {fullyQualifiedDestination} target)");
+            _indentWriter.WriteLine($"public static {fullyQualifiedDestination} Map{(_mappingContext.LongName ? ($"To{_destination.Name}") : string.Empty)}(this {fullyQualifiedSource} self, {fullyQualifiedDestination} target)");
         }
         else
         {
@@ -450,7 +481,7 @@ internal sealed class MappingBuilder : IDisposable
                 parameters[i + 1] = $"{parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}{nullableAnnotation} {parameter.Name}{optionalValue}";
             }
 
-            _indentWriter.WriteLine($"public static {fullyQualifiedDestination} MapFromProtobuf({string.Join(", ", parameters)})");
+            _indentWriter.WriteLine($"public static {fullyQualifiedDestination} Map{(_mappingContext.LongName ? ($"To{_destination.Name}") : string.Empty)}({string.Join(", ", parameters)})");
         }
 
         _indentWriter.WriteLine("{");
@@ -566,6 +597,11 @@ internal sealed class MappingBuilder : IDisposable
         }
         else if (destinationProperty.HasSetter())
         {
+            var nullConditional
+                = (destinationProperty.Type.IsReferenceType && sourceProperty.Type.IsReferenceType)
+                || sourceProperty.NullableAnnotation == NullableAnnotation.Annotated
+                ? "?" : string.Empty;
+
             if (sourceProperty.Type.IsAssignableTo(destinationProperty.Type))
             {
                 _indentWriter.WriteLine($"{prefix}{destinationProperty.Name} = self.{destinationProperty.Name}{postfix}");
@@ -580,11 +616,10 @@ internal sealed class MappingBuilder : IDisposable
             }
             else if (!sourceProperty.IsEnumerableCollection())
             {
-                var nullConditional = destinationProperty.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
                 var (s, t) = _targets.Where(e => e.HasValue).Select(e => e!.Value).Where(e => SymbolEqualityComparer.Default.Equals(sourceProperty.Type, e.source) && SymbolEqualityComparer.Default.Equals(destinationProperty.Type, e.destination)).Select(e => (e.source, e.destination)).FirstOrDefault();
                 if (s != null && t != null)
                 {
-                    _indentWriter.WriteLine($"{prefix}{destinationProperty.Name} = self.{destinationProperty.Name}{nullConditional}.MapFromProtobuf(){postfix}");
+                    _indentWriter.WriteLine($"{prefix}{destinationProperty.Name} = self.{destinationProperty.Name}{nullConditional}.Map(){postfix}");
                 }
                 else
                 {
@@ -622,11 +657,11 @@ internal sealed class MappingBuilder : IDisposable
         }
     }
 
-    private void WriteCollectionElementMapping(IPropertySymbol sourceProperty, IPropertySymbol destinationProperty, ITypeSymbol sourceTypeSymbol, ITypeSymbol destinationTypeSymbol, IndentedTextWriter _indentWriter, string prefix, string postfix)
+    private void WriteCollectionElementMapping(IPropertySymbol sourceProperty, IPropertySymbol destinationProperty, ITypeSymbol sourceCollectionTypeSymbol, ITypeSymbol destinationCollectionTypeSymbol, IndentedTextWriter _indentWriter, string prefix, string postfix)
     {
         string? methodName;
 
-        if (_compilation.ClassifyCommonConversion(sourceTypeSymbol, destinationTypeSymbol).IsImplicit)
+        if (_compilation.ClassifyCommonConversion(sourceCollectionTypeSymbol, destinationCollectionTypeSymbol).IsImplicit)
         {
             _indentWriter.WriteLine($"foreach(var e in self.{sourceProperty.Name})");
             _indentWriter.WriteLine("{");
@@ -635,34 +670,34 @@ internal sealed class MappingBuilder : IDisposable
             _indentWriter.Indent--;
             _indentWriter.WriteLine($"}}{Environment.NewLine}");
         }
-        else if ((methodName = sourceProperty.GetConversionMethod(destinationProperty)) != null)
-        {
-            _indentWriter.WriteLine($"foreach(var e in {prefix}{sourceProperty}");
-            _indentWriter.WriteLine("{");
-            _indentWriter.Indent++;
-            _indentWriter.WriteLine($"{destinationProperty}.Add(e.{methodName}());");
-            _indentWriter.Indent--;
-            _indentWriter.WriteLine("}");
-        }
-        else if (destinationTypeSymbol.TypeKind == TypeKind.Enum)
+        else if ((methodName = sourceCollectionTypeSymbol.GetConversionMethod(destinationCollectionTypeSymbol)) != null)
         {
             _indentWriter.WriteLine($"foreach(var e in self.{sourceProperty.Name})");
             _indentWriter.WriteLine("{");
             _indentWriter.Indent++;
-            var ss = $"{prefix}{destinationProperty.Name}.Add(e.MapToEnum<{$"global::{destinationProperty.ContainingNamespace.ToDisplayString()}.{destinationTypeSymbol.Name}"}>());";
-            _indentWriter.WriteLine($"{prefix}{destinationProperty.Name}.Add(e.MapToEnum<{$"global::{destinationProperty.ContainingNamespace.ToDisplayString()}.{destinationTypeSymbol.Name}"}>());");
+            _indentWriter.WriteLine($"{prefix}{destinationProperty.Name}.Add(e.{methodName}());");
+            _indentWriter.Indent--;
+            _indentWriter.WriteLine("}");
+        }
+        else if (destinationCollectionTypeSymbol.TypeKind == TypeKind.Enum)
+        {
+            _indentWriter.WriteLine($"foreach(var e in self.{sourceProperty.Name})");
+            _indentWriter.WriteLine("{");
+            _indentWriter.Indent++;
+            var ss = $"{prefix}{destinationProperty.Name}.Add(e.MapToEnum<{$"global::{destinationProperty.ContainingNamespace.ToDisplayString()}.{destinationCollectionTypeSymbol.Name}"}>());";
+            _indentWriter.WriteLine($"{prefix}{destinationProperty.Name}.Add(e.MapToEnum<{$"global::{destinationProperty.ContainingNamespace.ToDisplayString()}.{destinationCollectionTypeSymbol.Name}"}>());");
             _indentWriter.Indent--;
             _indentWriter.WriteLine($"}}{Environment.NewLine}");
         }
         else
         {
-            var (s, t) = _targets.Where(e => e.HasValue).Select(e => e!.Value).Where(e => SymbolEqualityComparer.Default.Equals(sourceTypeSymbol, e.source) && SymbolEqualityComparer.Default.Equals(destinationTypeSymbol, e.destination)).Select(e => (e.source, e.destination)).FirstOrDefault();
+            var (s, t) = _targets.Where(e => e.HasValue).Select(e => e!.Value).Where(e => SymbolEqualityComparer.Default.Equals(sourceCollectionTypeSymbol, e.source) && SymbolEqualityComparer.Default.Equals(destinationCollectionTypeSymbol, e.destination)).Select(e => (e.source, e.destination)).FirstOrDefault();
             if (s != null && t != null)
             {
                 var imessage = _compilation.GetTypeByMetadataName("Google.Protobuf.IMessage");
                 var isProtobufSource = imessage != null && _compilation.ClassifyCommonConversion(s, imessage).IsImplicit;
                 var isProtobufTarget = imessage != null && _compilation.ClassifyCommonConversion(t, imessage).IsImplicit;
-                var fn = isProtobufSource ? "MapFromProtobuf" : isProtobufTarget ? "MapToProtobuf" : "Map";
+                var fn = isProtobufSource ? "Map" : isProtobufTarget ? "Map" : "Map";
 
                 _indentWriter.WriteLine($"foreach(var e in self.{sourceProperty.Name})");
                 _indentWriter.WriteLine("{");

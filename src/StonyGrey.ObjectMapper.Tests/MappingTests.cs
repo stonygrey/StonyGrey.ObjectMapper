@@ -53,9 +53,9 @@ namespace StonyGrey.ObjectMapper.Tests
               .RuleFor(f => f.BytesMember, f => new byte[] { 1, 2, 3 })
               .Generate();
 
-            var pbObj1 = obj1.MapToProtobuf();
+            var pbObj1 = obj1.Map();
 
-            var obj2 = pbObj1.MapFromProtobuf();
+            var obj2 = pbObj1.Map();
 
             var json1 = JsonSerializer.Serialize(obj1);
             var json2 = JsonSerializer.Serialize(obj2);
@@ -72,9 +72,9 @@ namespace StonyGrey.ObjectMapper.Tests
             var obj1 = new AutoFaker<EnumerationsMessage>()
               .Generate();
 
-            var pbObj1 = obj1.MapToProtobuf();
+            var pbObj1 = obj1.Map();
 
-            var obj2 = pbObj1.MapFromProtobuf();
+            var obj2 = pbObj1.Map();
 
             var json1 = JsonSerializer.Serialize(obj1);
             var json2 = JsonSerializer.Serialize(obj2);
@@ -93,9 +93,9 @@ namespace StonyGrey.ObjectMapper.Tests
                 .RuleFor(f => f.SubMessage2, f => new AutoFaker<SubMessage2>()))
               .Generate();
 
-            var pbObj1 = obj1.MapToProtobuf();
+            var pbObj1 = obj1.Map();
 
-            var obj2 = pbObj1.MapFromProtobuf();
+            var obj2 = pbObj1.Map();
 
             var json1 = JsonSerializer.Serialize(obj1);
             var json2 = JsonSerializer.Serialize(obj2);
@@ -115,7 +115,7 @@ namespace StonyGrey.ObjectMapper.Tests
             Assert.IsNull(obj1.OptionalStringMember);
             Assert.IsNull(obj1.OptionalBytesMember);
 
-            var pbObj1 = obj1.MapToProtobuf();
+            var pbObj1 = obj1.Map();
 
             Assert.IsFalse(pbObj1.HasOptionalInt32Member);
             Assert.IsFalse(pbObj1.HasOptionalStringMember);
@@ -132,13 +132,13 @@ namespace StonyGrey.ObjectMapper.Tests
             Assert.IsNotNull(obj2.OptionalStringMember);
             Assert.IsNotNull(obj2.OptionalBytesMember);
 
-            var pbObj2 = obj2.MapToProtobuf();
+            var pbObj2 = obj2.Map();
 
             Assert.IsTrue(pbObj2.HasOptionalInt32Member);
             Assert.IsTrue(pbObj2.HasOptionalStringMember);
             Assert.IsTrue(pbObj2.HasOptionalBytesMember);
 
-            var obj3 = pbObj2.MapFromProtobuf();
+            var obj3 = pbObj2.Map();
 
             var json2 = JsonSerializer.Serialize(obj2);
             var json3 = JsonSerializer.Serialize(obj3);
@@ -157,23 +157,23 @@ namespace StonyGrey.ObjectMapper.Tests
             Assert.IsTrue(obj1.OneOfAMember == default);
             Assert.IsTrue(obj1.OneOfBMember == default);
 
-            var pbObj1 = obj1.MapToProtobuf();
+            var pbObj1 = obj1.Map();
 
             Assert.IsTrue(pbObj1.OneOfMemberCase == OneOfMemberOneofCase.None);
 
             OneOfMessage obj2 = new() { OneOfAMember = 1 };
 
-            var pbObj2 = obj2.MapToProtobuf();
+            var pbObj2 = obj2.Map();
 
             Assert.IsTrue(pbObj2.OneOfMemberCase == OneOfMemberOneofCase.OneOfAMember);
 
             OneOfMessage obj3 = new() { OneOfBMember = 1 };
 
-            var pbObj3 = obj3.MapToProtobuf();
+            var pbObj3 = obj3.Map();
 
             Assert.IsTrue(pbObj3.OneOfMemberCase == OneOfMemberOneofCase.OneOfBMember);
 
-            var obj4 = pbObj3.MapFromProtobuf();
+            var obj4 = pbObj3.Map();
 
             var json3 = JsonSerializer.Serialize(obj3);
             var json4 = JsonSerializer.Serialize(obj4);
