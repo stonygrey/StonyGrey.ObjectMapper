@@ -220,6 +220,7 @@ internal sealed class MappingBuilder : IDisposable
         // Required for 'required' properties.
 
         var collectionProperties = new List<(IPropertySymbol source, IPropertySymbol destination)>();
+        var mappedProperties = new List<(IPropertySymbol source, IPropertySymbol destination)>();
 
         var assignTerminator = constructor != null ? "," : ";";
 
@@ -237,7 +238,8 @@ internal sealed class MappingBuilder : IDisposable
             {
                 if (sourceProperty.Type.IsAssignableTo(destinationProperty.Type))
                 {
-                    WriteIndentedLine($"{targetPrefix}{destinationProperty.Name} = ({destinationProperty.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)})self.{destinationProperty.Name}{assignTerminator}");
+                    var nullableAnnotation = destinationProperty.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
+                    WriteIndentedLine($"{targetPrefix}{destinationProperty.Name} = ({destinationProperty.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}{nullableAnnotation})self.{destinationProperty.Name}{assignTerminator}");
                 }
                 else
                 {
@@ -255,12 +257,7 @@ internal sealed class MappingBuilder : IDisposable
                     }
                     else
                     {
-                        var (s, t) = _targets.Where(e => e.HasValue).Select(e => e!.Value).Where(e => SymbolEqualityComparer.Default.Equals(sourceProperty.Type, e.source) && SymbolEqualityComparer.Default.Equals(destinationProperty.Type, e.destination)).Select(e => (e.source, e.destination)).FirstOrDefault();
-                        if (s != null && t != null)
-                        {
-                            var nullConditional = sourceProperty.Type.IsReferenceType || sourceProperty.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
-                            WriteIndentedLine($"{targetPrefix}{destinationProperty.Name} = self.{destinationProperty.Name}{nullConditional}.Map{(_mappingContext.LongName ? ($"To{destinationProperty.Name}") : string.Empty)}(){assignTerminator}");
-                        }
+                        mappedProperties.Add((sourceProperty, destinationProperty));
                     }
                 }
             }
@@ -285,6 +282,21 @@ internal sealed class MappingBuilder : IDisposable
         {
             List<(IPropertySymbol sourceProperty, IPropertySymbol destinationProperty)>? collections = new() { (sourceProperty, destinationProperty) };
             MapCollections(collections, _indentWriter, "target.", string.Empty);
+        }
+
+        foreach (var (sourceProperty, destinationProperty) in mappedProperties)
+        {
+            var (s, t) = _targets.Where(e => e.HasValue).Select(e => e!.Value)
+                .Where(e => SymbolEqualityComparer.Default.Equals(sourceProperty.Type, e.source)
+                    && SymbolEqualityComparer.Default.Equals(destinationProperty.Type, e.destination))
+                .Select(e => (e.source, e.destination))
+                .FirstOrDefault();
+
+            if (s != null && t != null)
+            {
+                var nullConditional = sourceProperty.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
+                WriteIndentedLine($"target.{destinationProperty.Name} = self.{destinationProperty.Name}{nullConditional}.Map{(_mappingContext.LongName ? ($"To{destinationProperty.Type.Name}") : string.Empty)}(target.{destinationProperty.Name});");
+            }
         }
 
         WriteIndentedLine();

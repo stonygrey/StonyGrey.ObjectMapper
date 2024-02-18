@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
 
     <IsPackable>false</IsPackable>
@@ -28,7 +28,7 @@
 		  <PrivateAssets>all</PrivateAssets>
 		  <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
-		<PackageReference Include="StonyGrey.ObjectMapper" Version="3.0.6" />
+		<PackageReference Include="StonyGrey.ObjectMapper" Version="3.0.7" />
 	</ItemGroup>
 	<ItemGroup>
 	  <Protobuf Include="OneOfMessage.proto" />
