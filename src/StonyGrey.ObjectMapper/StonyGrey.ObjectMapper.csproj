@@ -8,7 +8,7 @@
     <Title>Stony Grey Object Mapper</Title>
     <Authors>Stony Grey LLC</Authors>
     <Company>Stony Grey LLC</Company>
-    <Copyright>Copyright © Stony Grey LLC 2022</Copyright>
+    <Copyright>Copyright © Stony Grey LLC 2023</Copyright>
     <PackageDescription>Protocol Buffers object mapper source generator</PackageDescription>
     <PackageTags>protobuf, proto3, protocol, buffers, object, mapper, source, generator</PackageTags>
     <RepositoryUrl>https://github.com/stonygrey/StonyGrey.ObjectMapper</RepositoryUrl>
@@ -28,11 +28,14 @@
   <PropertyGroup>
     <RestoreAdditionalProjectSources>https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet5/nuget/v3/index.json ;$(RestoreAdditionalProjectSources)</RestoreAdditionalProjectSources>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <DefineConstants>$(DefineConstants);_DEBUG</DefineConstants>
+  </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.3" PrivateAssets="all" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.0.0-6.final" />
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.1.1" PrivateAssets="All" />
-    <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="6.0.0">
+    <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="8.0.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>

@@ -2,7 +2,7 @@
 
 namespace Domain
 {
-    public enum Testing { One, Two, Three }
+    public enum TestEnum { One, Two, Three }
 
     public class TestSubSubMessage
     {
@@ -48,18 +48,18 @@ namespace Domain
         public long OneOfBMember { get; set; }
         public DateTime DateTimeMember { get; set; }
         public Guid GuidMember { get; set; }
-        public Testing EnumMember { get; set; }
+        public TestEnum EnumMember { get; set; }
         public byte[] DataMember { get; set; } = Array.Empty<byte>();
         public byte[]? OptionalDataMember { get; set; }
         public TestSubMessage1? TestSubMessageMember { get; set; }
         public ICollection<string> StringsMember { get; set;  } = new List<string>();
         public ICollection<TestSubMessage1> TestSubMessagesMember { get; set; } = new List<TestSubMessage1>();
 
-        public TestSubMessage2 TestSubMessage2Member { get; set; }
+        public TestSubMessage2 TestSubMessage2Member { get; set; } = new TestSubMessage2();
 
-        public List<Testing> EnumListMember { get; set; } = new List<Testing>();
+        public List<TestEnum> EnumListMember { get; set; } = new List<TestEnum>();
 
-        public Testing? NullableEnumMember { get; set; }
+        public TestEnum? NullableEnumMember { get; set; }
 
         public TestStruct TestStructMember { get; set; }
     }
