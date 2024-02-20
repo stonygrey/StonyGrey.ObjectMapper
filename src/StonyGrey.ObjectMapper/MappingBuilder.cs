@@ -236,7 +236,11 @@ internal sealed class MappingBuilder : IDisposable
 
             if (destinationProperty.HasSetter())
             {
-                if (sourceProperty.Type.IsAssignableTo(destinationProperty.Type))
+                if (sourceProperty.IsEnumerableCollection())
+                {
+                    collectionProperties.Add((sourceProperty, destinationProperty));
+                }
+                else if (sourceProperty.Type.IsAssignableTo(destinationProperty.Type))
                 {
                     var nullableAnnotation = destinationProperty.NullableAnnotation == NullableAnnotation.Annotated ? "?" : string.Empty;
                     WriteIndentedLine($"{targetPrefix}{destinationProperty.Name} = ({destinationProperty.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}{nullableAnnotation})self.{destinationProperty.Name}{assignTerminator}");
@@ -260,10 +264,6 @@ internal sealed class MappingBuilder : IDisposable
                         mappedProperties.Add((sourceProperty, destinationProperty));
                     }
                 }
-            }
-            else if (sourceProperty.IsEnumerableCollection())
-            {
-                collectionProperties.Add((sourceProperty, destinationProperty));
             }
             else
             {
@@ -688,22 +688,9 @@ internal sealed class MappingBuilder : IDisposable
         }
         else
         {
-            var (s, t) = _targets.Where(e => e.HasValue).Select(e => e!.Value).Where(e => SymbolEqualityComparer.Default.Equals(sourceCollectionTypeSymbol, e.source) && SymbolEqualityComparer.Default.Equals(destinationCollectionTypeSymbol, e.destination)).Select(e => (e.source, e.destination)).FirstOrDefault();
-            if (s != null && t != null && HasDefaultConstructor(t))
-            {
-                var imessage = _compilation.GetTypeByMetadataName("Google.Protobuf.IMessage");
-                var isProtobufSource = imessage != null && _compilation.ClassifyCommonConversion(s, imessage).IsImplicit;
-                var isProtobufTarget = imessage != null && _compilation.ClassifyCommonConversion(t, imessage).IsImplicit;
-                StartBlock($"foreach(var e in self.{sourceProperty.Name})");
-                WriteIndentedLine($"{prefix}{destinationProperty.Name}.Add(e.Map());");
-                EndBlock(Environment.NewLine);
-            }
-            else
-            {
-                // TODO: diagnostics
+            // TODO: diagnostics
 
-                WriteIndentedLine($"// Can't map {sourceProperty.FullyQualifiedName()} to {destinationProperty.FullyQualifiedName()}.");
-            }
+            WriteIndentedLine($"// Can't map {sourceProperty.FullyQualifiedName()} to {destinationProperty.FullyQualifiedName()}.");
         }
     }
 
