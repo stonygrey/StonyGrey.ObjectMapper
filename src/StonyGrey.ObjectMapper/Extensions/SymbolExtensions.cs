@@ -11,7 +11,7 @@ namespace StonyGrey.ObjectMapper.Extensions
         internal static bool IsAssignableTo(this ITypeSymbol sourceType, ITypeSymbol targetType)
         {
             var conversion = MapGenerator.Compilation.ClassifyCommonConversion(sourceType, targetType);
-            return conversion.IsIdentity || conversion.IsNumeric || conversion.IsReference || conversion.IsImplicit;
+            return conversion.IsIdentity || conversion.IsNumeric || conversion.IsImplicit;
         }
 
         internal static string? GetConversionMethod(this IPropertySymbol source, IPropertySymbol target)
